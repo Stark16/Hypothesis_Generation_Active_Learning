@@ -1,0 +1,9 @@
+ConfigArgParse
+datasets
+gensim
+nltk
+pytorch-crf
+spacy
+tokenizers
+torchtext
+transformers
