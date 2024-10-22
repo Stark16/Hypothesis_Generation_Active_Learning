@@ -11,3 +11,5 @@ MatSciBERT/bert_training/*
 MatSciBERT/cache_dir/*
 MatSciBERT/relation_classification/datasets/*
 MatSciBERT/ner/datasets/*
+MatSciBERT/trained_models/*
+!MatSciBERT/trained_models/.gitkeep
