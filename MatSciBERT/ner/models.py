@@ -66,7 +66,10 @@ class BERT_CRF(nn.Module):
         self.crf = BIO_Tag_CRF(config.num_labels, device, batch_first=True)
 
     def forward(self, **inputs):
-        assert('labels' in inputs)
+        if 'labels' in inputs:
+            labels = inputs['labels']
+        else:
+            labels = None
         logits = self.encoder(**inputs)[1]
         labels = inputs['labels']
         masks = (labels != -100)
