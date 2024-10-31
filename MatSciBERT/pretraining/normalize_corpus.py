@@ -7,8 +7,8 @@ from tokenizers.normalizers import BertNormalizer
 parser = ArgumentParser()
 parser.add_argument('--train_file', required=True, type=str)
 parser.add_argument('--val_file', required=True, type=str)
-parser.add_argument('--output_train_norm_file', required=True, type=str)
-parser.add_argument('--output_val_norm_file', required=True, type=str)
+parser.add_argument('--op_train_file', required=True, type=str)
+parser.add_argument('--op_val_file', required=True, type=str)
 args = parser.parse_args()
 
 
@@ -44,5 +44,5 @@ def normalize_and_save(file_path, save_file_path):
     f.close()
 
 
-normalize_and_save(args.train_file, args.output_train_norm_file)
-normalize_and_save(args.val_file, args.output_val_norm_file)
+normalize_and_save(args.train_file, args.op_train_file)
+normalize_and_save(args.val_file, args.op_val_file)
