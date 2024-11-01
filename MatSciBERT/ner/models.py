@@ -70,10 +70,14 @@ class BERT_CRF(nn.Module):
             labels = inputs['labels']
         else:
             labels = None
-        logits = self.encoder(**inputs)[1]
-        labels = inputs['labels']
-        masks = (labels != -100)
-        return self.crf(logits, labels, masks)
+        logits_out = self.encoder(**inputs)
+        logits = logits_out.logits
+        if labels is not None:
+            masks = (labels != -100)  # Create mask for valid tokens
+            return self.crf(logits, labels, masks)
+        else:
+            # During inference, return predictions
+            return self.crf.decode(logits)
 
 
 class BERT_BiLSTM_CRF(nn.Module):
