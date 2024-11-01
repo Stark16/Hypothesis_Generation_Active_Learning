@@ -1,7 +1,5 @@
 import sys
 sys.path.append('./MatSciBERT')
-import ner_datasets
-from chemdataextractor.doc import Paragraph
 import torch
 from normalize_text import normalize
 from models import BERT_CRF
