@@ -10,10 +10,10 @@ from transformers import AutoTokenizer, AutoConfig
 
 class NER_INF:
     def __init__(self) -> None:
-        self.PATH_self_dir = os.path.realpath(os.path.dirname(__file__))
+        self.PATH_self_dir = os.path.dirname(os.path.realpath(__file__))
         self.PATH_root_dir = os.path.join(self.PATH_self_dir, '../')
         self.PATH_cache_dir = os.path.join(self.PATH_root_dir, '.cache')
-        self.PATH_model_dir = os.path.join(self.PATH_self_dir, '/models/matscholar')
+        self.PATH_model_dir = os.path.join(self.PATH_self_dir, 'models/matscholar')
         if torch.cuda.is_available():
             self.device = torch.device('cuda')
         else:
@@ -78,6 +78,12 @@ class NER_INF:
         predicted_labels = [model.encoder.config.id2label[p] for p in outputs[0]]
         results = {}
         for token, label in zip(tokens, predicted_labels):
-            results[token, label]
+            results[token] = label
 
         return results
+
+if __name__ == "__main__":
+    test_sentence = "Roughening at low frequency was also attributed to platinum electrodissolution/electrodeposition during cycling[60]."
+    OBJ_ner_inf = NER_INF()
+    model = OBJ_ner_inf.initialize_infer()
+    print(OBJ_ner_inf.infer_caption(test_sentence, model))
