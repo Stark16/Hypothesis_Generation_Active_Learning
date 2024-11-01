@@ -16,7 +16,7 @@ else:
     device = torch.device('cpu')
 
 scientific_caption = "Cathodic waves can be treated in terms of the equation developed by Berzins and Delahay,18"
-
+scientific_caption = normalize(scientific_caption)
 # Trying to load the lables from the model config:
 config_kwargs = {
     'num_labels': 15,
