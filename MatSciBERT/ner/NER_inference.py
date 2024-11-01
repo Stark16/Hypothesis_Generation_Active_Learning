@@ -8,52 +8,76 @@ from models import BERT_CRF
 import os
 from transformers import AutoTokenizer, AutoConfig
 
-root_dir = r'/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT'
-cache_dir = os.path.join(root_dir, '.cache')
-if torch.cuda.is_available():
-    device = torch.device('cuda')
-else:
-    device = torch.device('cpu')
+class NER_INF:
+    def __init__(self) -> None:
+        self.PATH_self_dir = os.path.realpath(os.path.dirname(__file__))
+        self.PATH_root_dir = os.path.join(self.PATH_self_dir, '../')
+        self.PATH_cache_dir = os.path.join(self.PATH_root_dir, '.cache')
+        self.PATH_model_dir = os.path.join(self.PATH_self_dir, '/models/matscholar')
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+        else:
+            self.device = torch.device('cpu')
 
-scientific_caption = "Cathodic waves can be treated in terms of the equation developed by Berzins and Delahay,18"
-scientific_caption = normalize(scientific_caption)
-# Trying to load the lables from the model config:
-config_kwargs = {
-    'num_labels': 15,
-    'cache_dir': cache_dir,
-    'revision': 'main',
-    'use_auth_token': None,
-}
-label_list = ['B-APL', 'B-CMT', 'B-DSC', 'B-MAT', 'B-PRO', 'B-SMT', 'B-SPL', 'I-APL', 'I-CMT', 'I-DSC', 'I-MAT', 'I-PRO', 'I-SMT', 'I-SPL', 'O']
-id2label = {i: label for i, label in enumerate(label_list)}
-label2id = {label: i for i, label in enumerate(label_list)}
-config = AutoConfig.from_pretrained('m3rg-iitd/matscibert', **config_kwargs)
-config.id2label = id2label
-config.label2id = label2id
-model = BERT_CRF('m3rg-iitd/matscibert', device, config, cache_dir)
-ner_model_path = '/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/ner/models/matscholar'
-model.load_state_dict(torch.load(os.path.join(ner_model_path, 'pytorch_model.bin'), map_location='cpu'), strict=False)
-model = model.to(device)
-# Load the tokenizer:
-tokenizer_kwargs = {
-    'cache_dir': cache_dir,
-    'use_fast': True,
-    'revision': 'main',
-    'use_auth_token': None,
-    'model_max_length': 512
-}
-# Tokenize inputs:
-tokenizer = AutoTokenizer.from_pretrained('m3rg-iitd/matscibert', **tokenizer_kwargs)
+    def initialize_infer(self):
+        """Intialize a model and return its object
 
-inputs  = tokenizer(scientific_caption, return_tensors="pt", truncation=True, padding=True)
-inputs = {key: value.to(device) for key, value in inputs.items()}
+        Returns:
+            BERT_CRF: bert_ner model object
+        """
+        # Load the tokenizer:
+        tokenizer_kwargs = {
+            'cache_dir': self.PATH_cache_dir,
+            'use_fast': True,
+            'revision': 'main',
+            'use_auth_token': None,
+            'model_max_length': 512
+        }
+        # Tokenize inputs:
+        self.tokenizer = AutoTokenizer.from_pretrained('m3rg-iitd/matscibert', **tokenizer_kwargs)
 
+        label_list = ['B-APL', 'B-CMT', 'B-DSC', 'B-MAT', 'B-PRO', 'B-SMT', 'B-SPL', 'I-APL', 'I-CMT', 'I-DSC', 'I-MAT', 'I-PRO', 'I-SMT', 'I-SPL', 'O']
+        id2label = {i: label for i, label in enumerate(label_list)}
+        label2id = {label: i for i, label in enumerate(label_list)}
+        config_kwargs = {
+            'num_labels': len(label_list),
+            'cache_dir': self.PATH_cache_dir,
+            'revision': 'main',
+            'use_auth_token': None,
+        }
 
+        # Model Config and Intialize_model:
+        config = AutoConfig.from_pretrained('m3rg-iitd/matscibert', **config_kwargs)
+        config.id2label = id2label
+        config.label2id = label2id
 
-with torch.no_grad():
-    outputs = model(**inputs)
+        model = BERT_CRF('m3rg-iitd/matscibert', self.device, config, self.PATH_cache_dir)
+        model = model.to(self.device)
+        model.load_state_dict(torch.load(os.path.join(self.PATH_model_dir, 'pytorch_model.bin'), map_location='cpu'), strict=False)
 
-tokens = tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
-predicted_labels = [model.encoder.config.id2label[p] for p in outputs[0]]
-for token, label in zip(tokens, predicted_labels):
-    print(f"{token}: {label}")
+        return model
+
+    def infer_caption(self, sentence_caption:str, model:BERT_CRF):
+        """Perform inference on a caption
+
+        Args:
+            sentence_caption (str): string to infer on
+            model (BERT_CRF): loaded BERT_CRF model object
+
+        Returns:
+            dict: dictionary containing keys as tokens and values as lables of those token classification
+        """
+        sentence_caption = normalize(sentence_caption)
+        inputs  = self.tokenizer(sentence_caption, return_tensors="pt", truncation=True, padding=True)
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        tokens = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
+        predicted_labels = [model.encoder.config.id2label[p] for p in outputs[0]]
+        results = {}
+        for token, label in zip(tokens, predicted_labels):
+            results[token, label]
+
+        return results
