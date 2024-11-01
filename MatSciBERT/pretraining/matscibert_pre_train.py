@@ -49,8 +49,8 @@ def ensure_dir(dir_path):
 parser = ArgumentParser()
 parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/train_norm.txt", type=str)
 parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/val_norm.txt", type=str)
-parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/testing60_32ge", type=str)
-parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/testing60_32ge_cache", type=str)
+parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/testing80_16ge", type=str)
+parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/testing80_16ge_cache", type=str)
 args = parser.parse_args()
 
 model_revision = 'main'
@@ -184,7 +184,7 @@ training_args = TrainingArguments(
     output_dir=output_dir,
     per_device_train_batch_size=64,
     per_device_eval_batch_size=64,
-    gradient_accumulation_steps=32,
+    gradient_accumulation_steps=16,
     evaluation_strategy='epoch',
     save_strategy='epoch',
     save_total_limit=6,
