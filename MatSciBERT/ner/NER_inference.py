@@ -35,11 +35,11 @@ class NER_INF:
         # Tokenize inputs:
         self.tokenizer = AutoTokenizer.from_pretrained('m3rg-iitd/matscibert', **tokenizer_kwargs)
 
-        label_list = ['B-APL', 'B-CMT', 'B-DSC', 'B-MAT', 'B-PRO', 'B-SMT', 'B-SPL', 'I-APL', 'I-CMT', 'I-DSC', 'I-MAT', 'I-PRO', 'I-SMT', 'I-SPL', 'O']
-        id2label = {i: label for i, label in enumerate(label_list)}
-        label2id = {label: i for i, label in enumerate(label_list)}
+        self.label_list = ['B-APL', 'B-CMT', 'B-DSC', 'B-MAT', 'B-PRO', 'B-SMT', 'B-SPL', 'I-APL', 'I-CMT', 'I-DSC', 'I-MAT', 'I-PRO', 'I-SMT', 'I-SPL', 'O']
+        id2label = {i: label for i, label in enumerate(self.label_list)}
+        label2id = {label: i for i, label in enumerate(self.label_list)}
         config_kwargs = {
-            'num_labels': len(label_list),
+            'num_labels': len(self.label_list),
             'cache_dir': self.PATH_cache_dir,
             'revision': 'main',
             'use_auth_token': None,
