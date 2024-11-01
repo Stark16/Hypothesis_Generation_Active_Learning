@@ -76,8 +76,22 @@ class NER_INF:
         tokens = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])
         predicted_labels = [model.encoder.config.id2label[p] for p in outputs[0]]
         results = {}
-        for token, label in zip(tokens, predicted_labels):
-            results[token] = label
+        word, label = "", None
+
+        for token, label_id in zip(tokens, predicted_labels):
+            if token in ["[CLS]", "[SEP]", "[PAD]"]:
+                continue
+            
+            if token.startswith("##"):
+                word += token[2:]
+            else:
+                if word:
+                    results[word] = label
+                word = token
+                label = label_id
+
+        if word:
+            results[word] = label
 
         return results
 
