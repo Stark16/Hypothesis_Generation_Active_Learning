@@ -1,5 +1,6 @@
 import sys
 sys.path.append('./MatSciBERT')
+sys.path.append('./MatSciBERT/ner')
 import torch
 from normalize_text import normalize
 from models import BERT_CRF
