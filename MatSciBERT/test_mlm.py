@@ -78,18 +78,6 @@ class TestingMLM:
             predicted_token = tokenizer.decode(predicted_token_id)
             
         return predicted_token
-    
-    # def predict_masked_token(self, masked_sentence, model, tokenizer):
-    #     inputs = tokenizer(masked_sentence, return_tensors="pt").to(self.device)
-    #     with torch.no_grad():
-    #         outputs = model(**inputs)
-    #         logits = outputs.logits
-
-    #     mask_token_index = torch.where(inputs.input_ids == tokenizer.mask_token_id)[1]
-    #     mask_logits = logits[0, mask_token_index, :]
-    #     predicted_token_id = torch.argmax(mask_logits, dim=-1)
-    #     predicted_token = tokenizer.decode(predicted_token_id)
-    #     return predicted_token
 
     def run_inference_on_sentences(self, sentences, model, tokenizer, mask_non_technical=False, use_pipeline=False):
         correct_predictions = 0
@@ -102,7 +90,7 @@ class TestingMLM:
             
             masked_sentences = self.mask_entities(sentence, entity_labels, mask_non_technical=mask_non_technical)
             for masked_sentence, original_word in masked_sentences.items():
-                predicted_token = self.predict_masked_token(masked_sentence, model, tokenizer, use_pipeline=True)
+                predicted_token = self.predict_masked_token(masked_sentence, model, tokenizer, use_pipeline)
 
                 original_word_colored = Fore.RED + original_word + Fore.WHITE
                 masked_sentence_colored = masked_sentence.replace('[MASK]', original_word_colored)
@@ -206,9 +194,11 @@ if __name__ == "__main__":
 
     PATH_model = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tr_2005_80_32ge/checkpoint-1920"
     PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
-    PATH_output = 'mlm_tests/pipeline/2005_model'
+    PATH_output = 'mlm_tests/simple/2005_model'
     test_size = 500
     use_pipeline = True
+    if use_pipeline:
+        PATH_output = PATH_output.replace('simple', 'pipeline')
 
     OBJ_MlmTest = TestingMLM()
     OBJ_MlmTest.test(PATH_model, PATH_val_txt, PATH_output, test_size, use_pipeline)
