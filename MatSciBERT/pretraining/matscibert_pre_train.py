@@ -1,12 +1,18 @@
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-from sklearn.model_selection import KFold
+import sys
+import random
+import re
+sys.path.append('./MatSciBERT')
+ner_path = os.path.join(os.path.dirname(__file__), '../ner')
+sys.path.append(ner_path)
+import NER_inference
 
 from argparse import ArgumentParser
 
@@ -19,7 +25,10 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-
+import nltk
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+stop_words = set(stopwords.words('english'))
 from transformers import TrainerCallback
 
 class CustomLoggingCallback(TrainerCallback):
@@ -27,7 +36,6 @@ class CustomLoggingCallback(TrainerCallback):
         logs = logs or {}
         if 'loss' in logs:
             trainer.state.log_history.append({'step': state.global_step, 'loss': logs['loss']})
-
 
 torch.cuda.set_device(0)
 torch.cuda.empty_cache()
@@ -47,15 +55,16 @@ def ensure_dir(dir_path):
 
 
 parser = ArgumentParser()
-parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/train_norm.txt", type=str)
-parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/val_norm.txt", type=str)
-parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/testing80_16ge", type=str)
-parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/testing80_16ge_cache", type=str)
+parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/train_norm.txt", type=str)
+parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt", type=str)
+parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_2005_200_32ge", type=str)
+parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_2005_200_32ge_cache", type=str)
 args = parser.parse_args()
 
 model_revision = 'main'
 # model_name = 'allenai/scibert_scivocab_uncased'
 model_name = "bert-base-uncased"
+# model_name = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tr_2005_80_32ge/checkpoint-1920"
 cache_dir = ensure_dir(args.cache_dir) if args.cache_dir else None
 output_dir = ensure_dir(args.model_save_dir)
 logging_dir = ensure_dir(output_dir + '_logs')
@@ -87,17 +96,57 @@ start_tok = tokenizer.convert_tokens_to_ids('[CLS]')
 sep_tok = tokenizer.convert_tokens_to_ids('[SEP]')
 pad_tok = tokenizer.convert_tokens_to_ids('[PAD]')
 
+def mask_entities(sentence, entity_labels, target_entity_class=None, mask_non_technical=False):
+    masked_sentences = {}
+    lower_sentence = sentence.lower()
 
-def full_sent_tokenize(file_name):
+    non_technical_tokens = []
+
+    for token, label in entity_labels.items():
+        lower_token = token.lower()
+
+        if (lower_token in stop_words or len(lower_token) == 1 or re.match(r"^\d+$", lower_token)):
+            continue  # Skip this token if it's a stop word, single character, or number
+
+        if target_entity_class:
+            if label == target_entity_class and lower_token in lower_sentence:
+                masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
+                masked_sentences[masked_sentence] = token
+        else:
+            if label.startswith('I-') and not mask_non_technical and lower_token in lower_sentence:
+                masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
+                masked_sentences[masked_sentence] = token
+            elif label == 'O' and mask_non_technical and lower_token in lower_sentence:
+                if re.match(r"^[a-zA-Z0-9]+$", lower_token):  
+                    non_technical_tokens.append(lower_token)
+
+    if mask_non_technical and non_technical_tokens:
+        sample_tokens = random.sample(non_technical_tokens, min(len(non_technical_tokens), 3))
+        for token in sample_tokens:
+            masked_sentence = lower_sentence.replace(token, '[MASK]', 1)
+            masked_sentences[masked_sentence] = token
+
+    return masked_sentences
+
+def full_sent_tokenize(file_name, OBJ_ner:NER_inference, model_ner:NER_inference.NER_INF, mask_non_technical=False):
     f = open(file_name, 'r')
     sents = f.read().strip().split('\n')
     f.close()
+
     tok_sents = []
+    masked_sentences = []
     for s in tqdm(sents):
-        token = tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids']
-        tok_sents.append(token)
+        entity_labels = OBJ_ner.infer_caption(s, model_ner)
+        masked_sents = mask_entities(s, entity_labels, mask_non_technical)
+
+        for masked_sentence in masked_sents.keys():
+            tokenized_sent = tokenizer(masked_sentence, return_attention_mask=True, truncation=True, padding=True)['input_ids']
+            tok_sents.append(tokenized_sent)
+            masked_sentences.append(masked_sentence)
+        # token = tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids']
+        # tok_sents.append(token)
     
-    tok_sents = [tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids'] for s in tqdm(sents)]
+    # tok_sents = [tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids'] for s in tqdm(sents)]
     for s in tok_sents:
         s.pop(0)
     
@@ -146,10 +195,12 @@ class MSC_Dataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.inp['input_ids'])
+    
+OBJ_ner = NER_inference.NER_INF()
+model_ner = OBJ_ner.initialize_infer()
 
-
-train_dataset = MSC_Dataset(full_sent_tokenize(args.train_file))
-eval_dataset = MSC_Dataset(full_sent_tokenize(args.val_file))
+train_dataset = MSC_Dataset(full_sent_tokenize(args.train_file, OBJ_ner, model_ner))
+eval_dataset = MSC_Dataset(full_sent_tokenize(args.val_file, OBJ_ner, model_ner))
 
 print(len(train_dataset), len(eval_dataset))
 
@@ -184,7 +235,7 @@ training_args = TrainingArguments(
     output_dir=output_dir,
     per_device_train_batch_size=64,
     per_device_eval_batch_size=64,
-    gradient_accumulation_steps=16,
+    gradient_accumulation_steps=32,
     evaluation_strategy='epoch',
     save_strategy='epoch',
     save_total_limit=6,
@@ -196,7 +247,7 @@ training_args = TrainingArguments(
     adam_beta2=0.98,
     adam_epsilon=1e-6,
     max_grad_norm=0.0,
-    num_train_epochs=80,
+    num_train_epochs=200,
     seed=SEED,
 
     # logging_strategy='no'
