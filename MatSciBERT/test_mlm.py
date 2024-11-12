@@ -9,6 +9,7 @@ from tqdm import tqdm
 from ner.NER_inference import NER_INF
 import re
 import pandas as pd
+from nltk.corpus import stopwords
 
 class TestingMLM:
 
@@ -33,7 +34,9 @@ class TestingMLM:
             sentences = file.readlines()
         return random.sample(sentences, n)
 
-    def mask_entities(self, sentence, entity_labels, target_entity_class=None, mask_non_technical=False):
+    def mask_entities(self, sentence, entity_labels, target_entity_class=None, mask_non_technical=False, ignore_stop_words=False):
+        if (ignore_stop_words):
+            stop_words = set(stopwords.words("english"))
         masked_sentences = {}
         lower_sentence = sentence.lower()
 
@@ -41,6 +44,11 @@ class TestingMLM:
 
         for token, label in entity_labels.items():
             lower_token = token.lower()
+
+            if (ignore_stop_words):
+                if lower_token in stop_words or len(lower_token) == 1 or re.match(r"^\d$", lower_token):
+                    continue
+
             if target_entity_class:
                 if label == target_entity_class and lower_token in lower_sentence:
                     masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
@@ -61,6 +69,34 @@ class TestingMLM:
 
         return masked_sentences
     
+    # def mask_entities(self, sentence, entity_labels, target_entity_class=None, mask_non_technical=False):
+    #     masked_sentences = {}
+    #     lower_sentence = sentence.lower()
+
+    #     non_technical_tokens = []
+
+    #     for token, label in entity_labels.items():
+    #         lower_token = token.lower()
+    #         if target_entity_class:
+    #             if label == target_entity_class and lower_token in lower_sentence:
+    #                 masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
+    #                 masked_sentences[masked_sentence] = token
+    #         else:
+    #             if label.startswith('I-') and not mask_non_technical and lower_token in lower_sentence:
+    #                 masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
+    #                 masked_sentences[masked_sentence] = token
+    #             elif label == 'O' and mask_non_technical and lower_token in lower_sentence:
+    #                 if re.match(r"^[a-zA-Z0-9]+$", lower_token):  
+    #                     non_technical_tokens.append(lower_token)
+
+    #     if mask_non_technical and non_technical_tokens:
+    #         sample_tokens = random.sample(non_technical_tokens, min(len(non_technical_tokens), 3))
+    #         for token in sample_tokens:
+    #             masked_sentence = lower_sentence.replace(token, '[MASK]', 1)
+    #             masked_sentences[masked_sentence] = token
+
+    #     return masked_sentences
+    
     def predict_masked_token(self, masked_sentence, model, tokenizer, use_pipeline=False):
         if use_pipeline:
             classifier = pipeline("fill-mask", model=model, tokenizer=tokenizer, device=self.device)
@@ -79,7 +115,7 @@ class TestingMLM:
             
         return predicted_token
 
-    def run_inference_on_sentences(self, sentences, model, tokenizer, mask_non_technical=False, use_pipeline=False):
+    def run_inference_on_sentences(self, sentences, model, tokenizer, mask_non_technical=False, use_pipeline=False, ignore_stop_words=False):
         correct_predictions = 0
         total_predictions = 0
         results = []
@@ -88,7 +124,7 @@ class TestingMLM:
             sentence = sentence.strip()
             entity_labels = self.OBJ_ner_inf.infer_caption(sentence, self.MODEL_ner)
             
-            masked_sentences = self.mask_entities(sentence, entity_labels, mask_non_technical=mask_non_technical)
+            masked_sentences = self.mask_entities(sentence, entity_labels, mask_non_technical=mask_non_technical, ignore_stop_words=ignore_stop_words)
             for masked_sentence, original_word in masked_sentences.items():
                 predicted_token = self.predict_masked_token(masked_sentence, model, tokenizer, use_pipeline)
 
@@ -152,7 +188,7 @@ class TestingMLM:
         plt.close()
 
 
-    def test(self, PATH_trained_bert_mlm, pth_txt, PATH_output, t_size, use_pipeline=False):
+    def test(self, PATH_trained_bert_mlm, pth_txt, PATH_output, t_size, use_pipeline=False, ignore_stop_words=False):
 
         self.PATH_results_dir = os.path.join(self.PATH_self_dir, PATH_output)
         if not os.path.exists(self.PATH_results_dir):
@@ -168,7 +204,7 @@ class TestingMLM:
                         (MODEL_mlm_bert, TOK_mlm_bert, False, 'mlm_bert_tech'), (MODEL_mlm_bert, TOK_mlm_bert, True, 'mlm_bert_non_tech')]
 
         for model, tokenizer, mask_non_technical, model_name in tqdm(test_configs):
-            results = self.run_inference_on_sentences(random_sentences, model, tokenizer, mask_non_technical, use_pipeline)
+            results = self.run_inference_on_sentences(random_sentences, model, tokenizer, mask_non_technical, use_pipeline, ignore_stop_words)
             for result in results:
                 result.append(model_name) 
                 DF_results.loc[len(DF_results)] = result
@@ -195,10 +231,16 @@ if __name__ == "__main__":
     PATH_model = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tr_2005_80_32ge/checkpoint-1920"
     PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
     PATH_output = 'mlm_tests/simple/2005_model'
-    test_size = 500
+    test_size = 50
     use_pipeline = True
+    ignore_stop_words = True
+
     if use_pipeline:
         PATH_output = PATH_output.replace('simple', 'pipeline')
+    if ignore_stop_words:
+        import nltk
+        nltk.download('stopwords')
+        PATH_output = PATH_output + '_stp_wrd'
 
     OBJ_MlmTest = TestingMLM()
-    OBJ_MlmTest.test(PATH_model, PATH_val_txt, PATH_output, test_size, use_pipeline)
+    OBJ_MlmTest.test(PATH_model, PATH_val_txt, PATH_output, test_size, use_pipeline, ignore_stop_words)
