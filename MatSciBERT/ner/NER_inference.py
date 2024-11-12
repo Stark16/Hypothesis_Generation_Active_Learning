@@ -1,10 +1,11 @@
 import sys
+import os
 sys.path.append('./MatSciBERT')
+sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
 sys.path.append('./MatSciBERT/ner')
 import torch
 from normalize_text import normalize
 from models import BERT_CRF
-import os
 from transformers import AutoTokenizer, AutoConfig
 
 class NER_INF:
