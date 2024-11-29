@@ -1,4 +1,5 @@
 import os
+import time
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
@@ -25,6 +26,7 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
+
 import nltk
 nltk.download('stopwords')
 from nltk.corpus import stopwords
@@ -55,10 +57,10 @@ def ensure_dir(dir_path):
 
 
 parser = ArgumentParser()
-parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/train_norm.txt", type=str)
-parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt", type=str)
-parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_2005_200_32ge", type=str)
-parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_2005_200_32ge_cache", type=str)
+parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/train_norm.txt", type=str)
+parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/val_norm.txt", type=str)
+parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_1970_150_32ge", type=str)
+parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_1970_150_32ge_cache", type=str)
 args = parser.parse_args()
 
 model_revision = 'main'
@@ -96,7 +98,7 @@ start_tok = tokenizer.convert_tokens_to_ids('[CLS]')
 sep_tok = tokenizer.convert_tokens_to_ids('[SEP]')
 pad_tok = tokenizer.convert_tokens_to_ids('[PAD]')
 
-def mask_entities(sentence, entity_labels, target_entity_class=None, mask_non_technical=False):
+def mask_entities(sentence, entity_labels, target_entity_class=None, mask_technical=False):
     masked_sentences = {}
     lower_sentence = sentence.lower()
 
@@ -105,22 +107,22 @@ def mask_entities(sentence, entity_labels, target_entity_class=None, mask_non_te
     for token, label in entity_labels.items():
         lower_token = token.lower()
 
-        if (lower_token in stop_words or len(lower_token) == 1 or re.match(r"^\d+$", lower_token)):
+        if (lower_token in stop_words or len(lower_token) == 1 or re.match(r"^\d+$", lower_token) or lower_token not in lower_sentence):
             continue  # Skip this token if it's a stop word, single character, or number
 
-        if target_entity_class:
-            if label == target_entity_class and lower_token in lower_sentence:
+        if target_entity_class:         # For masking any needed label
+            if label == target_entity_class:
                 masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
                 masked_sentences[masked_sentence] = token
         else:
-            if label.startswith('I-') and not mask_non_technical and lower_token in lower_sentence:
+            if label.startswith('I-') and mask_technical:     # Mask techincal words (currently only masks entities that have the 'inside' (I-) label)
                 masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
                 masked_sentences[masked_sentence] = token
-            elif label == 'O' and mask_non_technical and lower_token in lower_sentence:
+            elif label == 'O' and not mask_technical:
                 if re.match(r"^[a-zA-Z0-9]+$", lower_token):  
                     non_technical_tokens.append(lower_token)
 
-    if mask_non_technical and non_technical_tokens:
+    if not mask_technical and non_technical_tokens:
         sample_tokens = random.sample(non_technical_tokens, min(len(non_technical_tokens), 3))
         for token in sample_tokens:
             masked_sentence = lower_sentence.replace(token, '[MASK]', 1)
@@ -128,23 +130,21 @@ def mask_entities(sentence, entity_labels, target_entity_class=None, mask_non_te
 
     return masked_sentences
 
-def full_sent_tokenize(file_name, OBJ_ner:NER_inference, model_ner:NER_inference.NER_INF, mask_non_technical=False):
+def full_sent_tokenize(file_name, OBJ_ner:NER_inference, model_ner:NER_inference.NER_INF, mask_technical=False):
     f = open(file_name, 'r')
     sents = f.read().strip().split('\n')
     f.close()
 
     tok_sents = []
     masked_sentences = []
+
     for s in tqdm(sents):
         entity_labels = OBJ_ner.infer_caption(s, model_ner)
-        masked_sents = mask_entities(s, entity_labels, mask_non_technical)
+        masked_sents = mask_entities(s, entity_labels, mask_technical=mask_technical)
 
         for masked_sentence in masked_sents.keys():
             tokenized_sent = tokenizer(masked_sentence, return_attention_mask=True, truncation=True, padding=True)['input_ids']
-            tok_sents.append(tokenized_sent)
-            masked_sentences.append(masked_sentence)
-        # token = tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids']
-        # tok_sents.append(token)
+        
     
     # tok_sents = [tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids'] for s in tqdm(sents)]
     for s in tok_sents:
@@ -199,8 +199,8 @@ class MSC_Dataset(torch.utils.data.Dataset):
 OBJ_ner = NER_inference.NER_INF()
 model_ner = OBJ_ner.initialize_infer()
 
-train_dataset = MSC_Dataset(full_sent_tokenize(args.train_file, OBJ_ner, model_ner))
-eval_dataset = MSC_Dataset(full_sent_tokenize(args.val_file, OBJ_ner, model_ner))
+train_dataset = MSC_Dataset(full_sent_tokenize(args.train_file, OBJ_ner, model_ner, mask_technical=True))
+eval_dataset = MSC_Dataset(full_sent_tokenize(args.val_file, OBJ_ner, model_ner, mask_technical=True))
 
 print(len(train_dataset), len(eval_dataset))
 
@@ -238,7 +238,7 @@ training_args = TrainingArguments(
     gradient_accumulation_steps=32,
     evaluation_strategy='epoch',
     save_strategy='epoch',
-    save_total_limit=6,
+    save_total_limit=4,
     load_best_model_at_end=True,
     warmup_ratio=0.048,
     learning_rate=1e-4,
@@ -247,7 +247,7 @@ training_args = TrainingArguments(
     adam_beta2=0.98,
     adam_epsilon=1e-6,
     max_grad_norm=0.0,
-    num_train_epochs=200,
+    num_train_epochs=100,
     seed=SEED,
 
     # logging_strategy='no'
