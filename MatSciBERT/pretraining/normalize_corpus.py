@@ -2,13 +2,14 @@ import random
 from tqdm import tqdm
 from argparse import ArgumentParser
 from tokenizers.normalizers import BertNormalizer
+import os
 
 
 parser = ArgumentParser()
 parser.add_argument('--train_file', required=True, type=str)
 parser.add_argument('--val_file', required=True, type=str)
-parser.add_argument('--op_train_file', required=True, type=str)
-parser.add_argument('--op_val_file', required=True, type=str)
+parser.add_argument('--op_train_file', required=False, type=str)
+parser.add_argument('--op_val_file', required=False, type=str)
 args = parser.parse_args()
 
 
@@ -42,7 +43,8 @@ def normalize_and_save(file_path, save_file_path):
     f = open(save_file_path, 'w')
     f.write('\n'.join(corpus_norm))
     f.close()
+output_train = os.path.dirname(args.train_file) + '/train_norm.txt'
+output_val = os.path.dirname(args.train_file) + '/val_norm.txt'
 
-
-normalize_and_save(args.train_file, args.op_train_file)
-normalize_and_save(args.val_file, args.op_val_file)
+normalize_and_save(args.train_file, output_train)
+normalize_and_save(args.val_file, output_val)
