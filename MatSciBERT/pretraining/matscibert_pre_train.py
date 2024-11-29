@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 import sys
+import multiprocessing
+from tqdm import tqdm
+from functools import partial
 import random
 import re
 sys.path.append('./MatSciBERT')
@@ -130,30 +133,53 @@ def mask_entities(sentence, entity_labels, target_entity_class=None, mask_techni
 
     return masked_sentences
 
-def full_sent_tokenize(file_name, OBJ_ner:NER_inference, model_ner:NER_inference.NER_INF, mask_technical=False):
-    f = open(file_name, 'r')
-    sents = f.read().strip().split('\n')
-    f.close()
-
+# Define the function to process a chunk of sentences
+def process_sentences_chunk(sentences_chunk, OBJ_ner, model_ner, tokenizer, mask_technical):
     tok_sents = []
     masked_sentences = []
 
-    for s in tqdm(sents):
+    for s in sentences_chunk:
+        # NER inference and entity masking
         entity_labels = OBJ_ner.infer_caption(s, model_ner)
         masked_sents = mask_entities(s, entity_labels, mask_technical=mask_technical)
 
+        # Tokenization of masked sentences
         for masked_sentence in masked_sents.keys():
             tokenized_sent = tokenizer(masked_sentence, return_attention_mask=True, truncation=True, padding=True)['input_ids']
-        
-    
-    # tok_sents = [tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids'] for s in tqdm(sents)]
-    for s in tok_sents:
-        s.pop(0)
-    
+            tok_sents.append(tokenized_sent)
+
+    return tok_sents
+
+# Main function with multiprocessing
+def full_sent_tokenize(file_name, OBJ_ner, model_ner, tokenizer, mask_technical=False, num_processes=None):
+    # Read sentences from the file
+    with open(file_name, 'r') as f:
+        sents = f.read().strip().split('\n')
+
+    # Determine the number of processes (default: all available cores)
+    num_processes = num_processes or multiprocessing.cpu_count()
+
+    # Split sentences into chunks for each process
+    chunk_size = len(sents) // num_processes
+    chunks = [sents[i:i + chunk_size] for i in range(0, len(sents), chunk_size)]
+
+    # Use multiprocessing Pool to process chunks in parallel
+    with multiprocessing.Pool(processes=num_processes) as pool:
+        # Use partial to pass additional arguments
+        process_chunk = partial(process_sentences_chunk, OBJ_ner=OBJ_ner, model_ner=model_ner, tokenizer=tokenizer, mask_technical=mask_technical)
+
+        # Map each chunk to the worker function
+        results = list(tqdm(pool.imap(process_chunk, chunks), total=len(chunks)))
+
+    # Flatten results into a single list
+    tok_sents = [item for sublist in results for item in sublist]
+
+    # Post-processing to fit the expected return structure
     res = [[]]
     l_curr = 0
-    
+
     for s in tok_sents:
+        s.pop(0)
         l_s = len(s)
         idx = 0
         while idx < l_s - 1:
@@ -166,15 +192,15 @@ def full_sent_tokenize(file_name, OBJ_ner:NER_inference, model_ner:NER_inference
             if len(res[-1]) == max_seq_length:
                 res.append([])
             l_curr = len(res[-1])
-    
+
     for s in res[:-1]:
         assert s[0] == start_tok and s[-1] == sep_tok
         assert len(s) == max_seq_length
-        
+
     attention_mask = []
     for s in res:
         attention_mask.append([1] * len(s) + [0] * (max_seq_length - len(s)))
-    
+
     return {'input_ids': res, 'attention_mask': attention_mask}
 
 def get_min_and_last(values, label):
@@ -199,8 +225,21 @@ class MSC_Dataset(torch.utils.data.Dataset):
 OBJ_ner = NER_inference.NER_INF()
 model_ner = OBJ_ner.initialize_infer()
 
-train_dataset = MSC_Dataset(full_sent_tokenize(args.train_file, OBJ_ner, model_ner, mask_technical=True))
-eval_dataset = MSC_Dataset(full_sent_tokenize(args.val_file, OBJ_ner, model_ner, mask_technical=True))
+train_dataset = MSC_Dataset(full_sent_tokenize(
+    file_name=args.train_file,
+    OBJ_ner=OBJ_ner,
+    model_ner=model_ner,
+    tokenizer=tokenizer,
+    mask_technical=True,
+    num_processes=8))
+
+eval_dataset = MSC_Dataset(full_sent_tokenize(
+    file_name=args.val_file,
+    OBJ_ner=OBJ_ner,
+    model_ner=model_ner,
+    tokenizer=tokenizer,
+    mask_technical=True,
+    num_processes=8))
 
 print(len(train_dataset), len(eval_dataset))
 
