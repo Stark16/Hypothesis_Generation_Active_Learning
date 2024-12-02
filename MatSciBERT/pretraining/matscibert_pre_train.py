@@ -57,10 +57,10 @@ def ensure_dir(dir_path):
 
 
 parser = ArgumentParser()
-parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/train_norm.txt", type=str)
-parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/val_norm.txt", type=str)
-parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_1970_150_32ge", type=str)
-parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_1970_150_32ge_cache", type=str)
+parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/train_norm.txt", type=str)
+parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt", type=str)
+parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_2005_150_32ge", type=str)
+parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_tr_2005_150_32ge_cache", type=str)
 args = parser.parse_args()
 
 model_revision = 'main'
@@ -144,7 +144,7 @@ def full_sent_tokenize(file_name, OBJ_ner:NER_inference, model_ner:NER_inference
 
         for masked_sentence in masked_sents.keys():
             tokenized_sent = tokenizer(masked_sentence, return_attention_mask=True, truncation=True, padding=True)['input_ids']
-        
+            tok_sents.append(tokenized_sent)
     
     # tok_sents = [tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids'] for s in tqdm(sents)]
     for s in tok_sents:
@@ -249,7 +249,6 @@ training_args = TrainingArguments(
     max_grad_norm=0.0,
     num_train_epochs=100,
     seed=SEED,
-
     # logging_strategy='no'
     logging_first_step=True,
     logging_strategy='steps',
