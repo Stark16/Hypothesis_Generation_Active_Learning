@@ -1,19 +1,24 @@
 import os
 import time
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+training_device = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = training_device
 import torch
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
+import json
 from tqdm import tqdm
 import sys
+from datetime import datetime, timedelta
 import random
 import re
 sys.path.append('./MatSciBERT')
+import test_mlm
 ner_path = os.path.join(os.path.dirname(__file__), '../ner')
 sys.path.append(ner_path)
 import NER_inference
+
 
 from argparse import ArgumentParser
 
@@ -55,21 +60,36 @@ def ensure_dir(dir_path):
     Path(dir_path).mkdir(parents=True, exist_ok=True)
     return dir_path
 
+HYPERPARAMETERS = {
+    "per_device_train_batch_size" : 64,
+    "gradient_accumulation_steps" : 32,
+    "learning_rate" : 1e-4,
+    "num_train_epochs" : 3,
+    "logging_steps" : 8,
+    'mlm_probability' : 0.15,
+    "training_device" : training_device
+}
 
 parser = ArgumentParser()
 parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/train_norm.txt", type=str)
 parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/val_norm.txt", type=str)
-parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/test_tech_tr_2005_150_32ge", type=str)
-parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/test_tech_tr_2005_150_32ge_cache", type=str)
+parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/test_tr", type=str)
+parser.add_argument('--cache_dir', default=None, type=str)
+parser.add_argument('--tech', default=True, type=bool)
 args = parser.parse_args()
 
 model_revision = 'main'
 # model_name = 'allenai/scibert_scivocab_uncased'
 model_name = "bert-base-uncased"
-# model_name = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tr_2005_80_32ge/checkpoint-1920"
-cache_dir = ensure_dir(args.cache_dir) if args.cache_dir else None
-output_dir = ensure_dir(args.model_save_dir)
-logging_dir = ensure_dir(output_dir + '_logs')
+
+output_dir = ensure_dir(args.model_save_dir + '_{}_{}_{}ge'.format(os.path.basename(os.path.dirname(args.train_file)), 
+                                                            HYPERPARAMETERS['num_train_epochs'], 
+                                                            HYPERPARAMETERS['gradient_accumulation_steps']))
+
+cache_dir = ensure_dir(args.cache_dir) if args.cache_dir else ensure_dir(output_dir + '/cache')
+logging_dir = ensure_dir(output_dir + '/logs')
+output_dir = ensure_dir(output_dir + r'/checkpoints')
+technical_words_only = args.tech
 
 assert os.path.exists(args.train_file)
 assert os.path.exists(args.val_file)
@@ -199,8 +219,32 @@ class MSC_Dataset(torch.utils.data.Dataset):
 OBJ_ner = NER_inference.NER_INF()
 model_ner = OBJ_ner.initialize_infer()
 
-train_dataset = MSC_Dataset(full_sent_tokenize(args.train_file, OBJ_ner, model_ner, mask_technical=True))
-eval_dataset = MSC_Dataset(full_sent_tokenize(args.val_file, OBJ_ner, model_ner, mask_technical=True))
+training_config = {"train_dir" : args.train_file.replace('\\', '/'),
+                   "val_dir" : args.val_file.replace('\\', '/'),
+                   "mask_only_technical_words" : technical_words_only,
+                   "output_directories" : {"Model" : output_dir.replace('\\', '/'),
+                                          "Cache" : cache_dir.replace('\\', '/'),
+                                          "Logs" : logging_dir.replace('\\', '/')},
+                    "training_resumed" : None,
+                    "parallel_preprocessing" : None,
+                    "training example_count" : 0,
+                    "validation example_count" : 0,
+                    "timeline" : {}}
+                    
+# Save the training config for future reference
+with open(logging_dir + '/training_config.json', 'w') as f:
+    json.dump(training_config, f)
+
+dataset_loading_start_time = time.time()
+train_dataset = MSC_Dataset(full_sent_tokenize(args.train_file, OBJ_ner, model_ner, mask_technical=technical_words_only))
+eval_dataset = MSC_Dataset(full_sent_tokenize(args.val_file, OBJ_ner, model_ner, mask_technical=technical_words_only))
+
+t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - dataset_loading_start_time))
+training_config['timeline']['Dataset Loading'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+training_config['training example_count'] = len(train_dataset)
+training_config['validation example_count'] = len(eval_dataset)
+with open(logging_dir + '/training_config.json', 'w') as f:
+    json.dump(training_config, f)
 
 print(len(train_dataset), len(eval_dataset))
 
@@ -223,36 +267,30 @@ model.resize_token_embeddings(len(tokenizer))
 model.to(torch.device(device))
 # model = torch.nn.DataParallel(model)
 
-data_collator = DataCollatorForWholeWordMask(tokenizer=tokenizer, mlm_probability=0.15)
-HYPERPARAMETERS = {
-    "batch_size" : 64,
-    "grad_acc" : 4,
-    "lr" : 1e-4,
-    "epochs" : 60
-}
+data_collator = DataCollatorForWholeWordMask(tokenizer=tokenizer, mlm_probability=HYPERPARAMETERS['mlm_probability'])
 
 training_args = TrainingArguments(
     output_dir=output_dir,
-    per_device_train_batch_size=64,
-    per_device_eval_batch_size=64,
-    gradient_accumulation_steps=32,
+    per_device_train_batch_size=HYPERPARAMETERS['per_device_train_batch_size'],
+    per_device_eval_batch_size=HYPERPARAMETERS['per_device_train_batch_size'],
+    gradient_accumulation_steps=HYPERPARAMETERS['gradient_accumulation_steps'],
     evaluation_strategy='epoch',
     save_strategy='epoch',
     save_total_limit=4,
     load_best_model_at_end=True,
     warmup_ratio=0.048,
-    learning_rate=1e-4,
+    learning_rate=HYPERPARAMETERS['learning_rate'],
     weight_decay=1e-2,
     adam_beta1=0.9,
     adam_beta2=0.98,
     adam_epsilon=1e-6,
     max_grad_norm=0.0,
-    num_train_epochs=100,
+    num_train_epochs=HYPERPARAMETERS['num_train_epochs'],
     seed=SEED,
     # logging_strategy='no'
     logging_first_step=True,
     logging_strategy='steps',
-    logging_steps=8
+    logging_steps=HYPERPARAMETERS['logging_steps']
 )
 
 trainer = Trainer(
@@ -269,12 +307,28 @@ torch.cuda.empty_cache()
 print("Device Used: ", trainer.args.device)
 print(torch.cuda.current_device())
 resume = None if len(os.listdir(output_dir)) == 0 else True
-train_res = trainer.train(resume_from_checkpoint=resume)
+training_config['training_resumed'] = resume
+with open(logging_dir + '/training_config.json', 'w') as f:
+    json.dump(training_config, f)
 
+train_start = time.time()
+train_res = trainer.train(resume_from_checkpoint=resume)
 print(train_res)
+t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - train_start))
+training_config['timeline']['Training'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+with open(logging_dir + '/training_config.json', 'w') as f:
+    json.dump(training_config, f)
+
 torch.cuda.empty_cache()
+
+eval_start_time = time.time()
 train_output = trainer.evaluate(train_dataset)
 eval_output = trainer.evaluate()
+t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - eval_start_time))
+training_config['timeline']['Evaluation'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+with open(logging_dir + '/training_config.json', 'w') as f:
+    json.dump(training_config, f)
+
 
 
 # Evaluating:
@@ -296,10 +350,18 @@ steps_per_epoch = 17
 epochs = [step // steps_per_epoch + 1 for step in steps]
 
 train_loss_min, train_loss_min_epoch, train_loss_last, train_loss_last_epoch = get_min_and_last(train_loss, "Training Loss")
+training_config['Training Loss'] = f"Training Loss -> Min: {train_loss_min} at epoch {train_loss_min_epoch}, Last: {train_loss_last} at epoch {train_loss_last_epoch}"
+
 eval_loss_min, eval_loss_min_epoch, eval_loss_last, eval_loss_last_epoch = get_min_and_last(eval_loss, "Evaluation Loss")
+training_config['Evaluation Loss'] = f"Evaluation Loss -> Min: {eval_loss_min} at epoch {eval_loss_min_epoch}, Last: {eval_loss_last} at epoch {eval_loss_last_epoch}"
 
 train_perplexity_min, train_perplexity_min_epoch, train_perplexity_last, train_perplexity_last_epoch = get_min_and_last(train_perplexity, "Training Perplexity")
+training_config['Training Perplexity'] = f"Training Perplexity -> Min: {train_perplexity_min} at epoch {train_perplexity_min_epoch}, Last: {train_perplexity_last} at epoch {train_perplexity_last_epoch}"
+
 eval_perplexity_min, eval_perplexity_min_epoch, eval_perplexity_last, eval_perplexity_last_epoch = get_min_and_last(eval_perplexity, "Evaluation Perplexity")
+training_config['Evaluation Perplexity'] = f"Evaluation Perplexity -> Min: {eval_perplexity_min} at epoch {eval_perplexity_min_epoch}, Last: {eval_perplexity_last} at epoch {eval_perplexity_last_epoch}"
+with open(logging_dir + '/training_config.json', 'w') as f:
+    json.dump(training_config, f)
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
 
@@ -345,3 +407,22 @@ plt.savefig(logging_dir + '/training_plots.png', format='png', dpi=300)
 
 print(train_output)
 print(eval_output)
+
+torch.cuda.empty_cache()
+
+testing_start_time = time.time()
+
+print("[INFO] Training finished. Performing Checkpoint Evaluations...")
+OBJ_MlmTest = test_mlm.TestingMLM()
+for model_checkpoint in tqdm(os.listdir(output_dir)):
+    print('================================ [INFO] Testing Checkpoint - ', model_checkpoint, '[INFO] ================================')
+    PATH_model_checkpoint = os.path.join(output_dir, model_checkpoint)
+    PATH_output = os.path.join(logging_dir + '_' + model_checkpoint, 'simple')
+
+    OBJ_MlmTest.test(PATH_trained_bert_mlm=PATH_model_checkpoint, pth_txt=args.val_file, PATH_output=PATH_output, t_size=5, use_pipeline=True, ignore_stop_words=True)
+
+# Save the training config for future reference
+t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - testing_start_time))
+training_config['timeline']['Custom Testing'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+with open(logging_dir + '/training_config.json', 'w') as f:
+    json.dump(training_config, f)

@@ -188,9 +188,17 @@ class TestingMLM:
         plt.close()
 
 
-    def test(self, PATH_trained_bert_mlm, pth_txt, PATH_output, t_size, use_pipeline=False, ignore_stop_words=False):
+    def test(self, PATH_trained_bert_mlm, pth_txt, t_size, PATH_output, use_pipeline=False, ignore_stop_words=False):
 
-        self.PATH_results_dir = os.path.join(self.PATH_self_dir, PATH_output)
+        if use_pipeline:
+            PATH_output = PATH_output.replace('simple', 'pipeline')
+
+        if ignore_stop_words:
+            import nltk
+            nltk.download('stopwords')
+            PATH_output = PATH_output + '_stp_wrd'
+
+        self.PATH_results_dir = os.path.join(self.PATH_self_dir, PATH_output) if PATH_output.startswith('mlm_test') else PATH_output
         if not os.path.exists(self.PATH_results_dir):
             os.makedirs(self.PATH_results_dir)
         df_columns=['UnMaksed', 'Predicted', 'GT_Word', 'P_Word', 'IsCorrect', 'IsTechEntity', 'EntityCls', 'ModelName']
@@ -234,13 +242,6 @@ if __name__ == "__main__":
     test_size = 50
     use_pipeline = True
     ignore_stop_words = True
-
-    if use_pipeline:
-        PATH_output = PATH_output.replace('simple', 'pipeline')
-    if ignore_stop_words:
-        import nltk
-        nltk.download('stopwords')
-        PATH_output = PATH_output + '_stp_wrd'
 
     OBJ_MlmTest = TestingMLM()
     OBJ_MlmTest.test(PATH_model, PATH_val_txt, PATH_output, test_size, use_pipeline, ignore_stop_words)
