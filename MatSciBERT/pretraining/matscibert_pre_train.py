@@ -1,35 +1,42 @@
 import os
 import time
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+training_device = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = training_device
 import torch
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
+from datetime import datetime, timedelta
 import sys
 import random
 import re
+import json
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import cpu_count
 from multiprocessing import set_start_method
 from argparse import ArgumentParser
 from transformers import TrainerCallback
-
+import warnings
 try:
     set_start_method('spawn', force=True)
 except RuntimeError:
     print('[ERROR] Could not set multi-processing method to "spawn"')
     os._exit(0)
 
-sys.path.append('./MatSciBERT')
-ner_path = os.path.join(os.path.dirname(__file__), '../ner')
-sys.path.append(ner_path)
-import NER_inference
+sys.path.append('/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT')
+import test_mlm
+# import test_mlm
+# ner_path = os.path.join(os.path.dirname(__file__), '../ner')
+# sys.path.append(ner_path)
+from ner import NER_inference
 
 from transformers import (
     AutoConfig,
     BertForMaskedLM,
+    BertTokenizer,
+    BertTokenizerFast,
     AutoTokenizer,
     DataCollatorForWholeWordMask,
     Trainer,
@@ -42,6 +49,76 @@ class CustomLoggingCallback(TrainerCallback):
         logs = logs or {}
         if 'loss' in logs:
             trainer.state.log_history.append({'step': state.global_step, 'loss': logs['loss']})
+
+
+class CustomDataCollatorForWholeWordMask(DataCollatorForWholeWordMask):
+    def __init__(self, tokenizer, tok_mask_cand, mlm_probability=0.15, custom_mlm_probability=1.0):
+        super().__init__(tokenizer, mlm_probability=mlm_probability)
+        self.tok_mask_cand = tok_mask_cand
+        self.tokenizer = tokenizer
+        self.custom_mlm_probability = custom_mlm_probability
+
+    def _whole_word_mask(self, input_tokens: list[str], max_predictions=512):
+        """
+        Custom masking logic using tok_mask_cand with fallback to default logic.
+        """
+        if not isinstance(self.tokenizer, (BertTokenizer, BertTokenizerFast)):
+            warnings.warn(
+                "DataCollatorForWholeWordMask is only suitable for BertTokenizer-like tokenizers. "
+                "Please refer to the documentation for more information."
+            )
+        # Step 1: Collect candidate indexes
+        mlm_probability = self.custom_mlm_probability 
+        cand_indexes = []
+
+        # check if the string is in our candidate pool
+        if (tuple(input_tokens) in list(self.tok_mask_cand.keys()) and len(self.tok_mask_cand[tuple(input_tokens)]) > 2):
+            for i, token in enumerate(input_tokens):
+                if token == "[CLS]" or token == "[SEP]" or token not in self.tok_mask_cand[tuple(input_tokens)]:    # skipping if the token is not in the token pool
+                    continue
+
+                if len(cand_indexes) >= 1 and token.startswith("##"):
+                    cand_indexes[-1].append(i)
+                else:
+                    cand_indexes.append([i])
+        
+        # if not then go with default masking procedure:
+        else:
+        # Step 2: fallback to default masking logic if we have less or no candidates pool
+            for i, token in enumerate(input_tokens):
+                if token == "[CLS]" or token == "[SEP]":
+                    continue
+
+                if len(cand_indexes) >= 1 and token.startswith("##"):
+                    cand_indexes[-1].append(i)
+                else:
+                    cand_indexes.append([i])
+            mlm_probability = self.mlm_probability 
+
+
+        # Step 3: Shuffle candidates and prepare to mask
+        random.shuffle(cand_indexes)
+        num_to_predict = min(max_predictions, max(1, int(round(len(input_tokens) * mlm_probability))))
+
+        masked_lms = []
+        covered_indexes = set()
+        for index_set in cand_indexes:
+            if len(masked_lms) >= num_to_predict:
+                break
+            if len(masked_lms) + len(index_set) > num_to_predict:
+                continue
+            if any(index in covered_indexes for index in index_set):
+                continue
+
+            for index in index_set:
+                covered_indexes.add(index)
+                masked_lms.append(index)
+
+        # Step 4: Create mask labels
+        mask_labels = [1 if i in covered_indexes else 0 for i in range(len(input_tokens))]
+        return mask_labels
+
+
 
 def ensure_dir(dir_path):
     Path(dir_path).mkdir(parents=True, exist_ok=True)
@@ -57,52 +134,55 @@ def mask_entities(sentence, entity_labels, stop_words, target_entity_class=None,
     for token, label in entity_labels.items():
         lower_token = token.lower()
 
-        if (lower_token in stop_words or len(lower_token) == 1 or re.match(r"^\d+$", lower_token) or lower_token not in lower_sentence):
-            continue  # Skip this token if it's a stop word, single character, or number
-
+        if (lower_token.startswith('##') == False):
+            if (lower_token in stop_words or len(lower_token) == 1 or re.match(r"^\d+$", lower_token) or lower_token not in lower_sentence):
+                continue  # Skip this token if it's a stop word, single character, or number
+        
+        replacement_token = lower_token[2:] if lower_token.startswith('##') else lower_token
         if target_entity_class:         # For masking any needed label
             if label == target_entity_class:
-                masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
+                masked_sentence = lower_sentence.replace(replacement_token, '[MASK]', 1)
                 masked_sentences[masked_sentence] = token
         else:
             if label.startswith('I-') and mask_technical:     # Mask techincal words (currently only masks entities that have the 'inside' (I-) label)
-                masked_sentence = lower_sentence.replace(lower_token, '[MASK]', 1)
+                masked_sentence = lower_sentence.replace(replacement_token, '[MASK]', 1)
                 masked_sentences[masked_sentence] = token
             elif label == 'O' and not mask_technical:
-                if re.match(r"^[a-zA-Z0-9]+$", lower_token):  
-                    non_technical_tokens.append(lower_token)
+                if re.match(r"^[a-zA-Z0-9]+$", lower_token):
+                    masked_sentence = lower_sentence.replace(replacement_token, '[MASK]', 1)
+                    masked_sentences[masked_sentence] = token
+                    # non_technical_tokens.append(replacement_token)
 
-    if not mask_technical and non_technical_tokens:
-        sample_tokens = random.sample(non_technical_tokens, min(len(non_technical_tokens), 3))
-        for token in sample_tokens:
-            masked_sentence = lower_sentence.replace(token, '[MASK]', 1)
-            masked_sentences[masked_sentence] = token
+    # This part limits the number of non-technical token candidates but is not needed with data_collator:
+    # if not mask_technical and non_technical_tokens:
+    #     sample_tokens = random.sample(non_technical_tokens, min(len(non_technical_tokens), 3))
+    #     for token in sample_tokens:
+    #         masked_sentence = lower_sentence.replace(token, '[MASK]', 1)
+    #         masked_sentences[masked_sentence] = token
 
     return masked_sentences
 
 def process_chunk(args):
 
-    sentences, mask_technical, stop_words = args
+    sentences, mask_technical, stop_words, tokenizer= args
     OBJ_ner = NER_inference.NER_INF()
     model_ner = OBJ_ner.initialize_infer()
+    model_name = "bert-base-uncased"
+    # tokenizer = AutoTokenizer.from_pretrained(model_name, **tokenizer_kwargs)
 
     preprossed_dict = {}
     for s in tqdm(sentences):
-        entity_labels = OBJ_ner.infer_caption(s, model_ner)
+        entity_labels = OBJ_ner.infer_caption(s, model_ner, training_mode=True)
         masked_sents = mask_entities(s, entity_labels, stop_words, mask_technical=mask_technical)
-        preprossed_dict[s] = {'mask_candidates' : list(masked_sents.values()), 
-                              'tokenized_raw' : [],
-                              'masked_sentences' : list(masked_sents.keys())}
+        preprossed_dict[s] = [list(masked_sents.values()),                                                                  # mask_candidates
+                              tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids'],         # tokenized_raw
+                              list(masked_sents.keys())]                                                                    # masked_sentences
 
-    tokenized_batch  = tokenizer(list(preprossed_dict.keys()), return_attention_mask=True, truncation=True, padding=True)['input_ids']   # using batch tokenization for speed boost
-
-    for idx, s in enumerate(preprossed_dict.keys()):
-        preprossed_dict[s]['tokenized_raw'] = tokenized_batch['input_ids'][idx]
 
     return preprossed_dict
 
-def full_sent_tokenize(file_name, stop_words, mask_technical=False):
-    num_processes = 1#cpu_count()
+def full_sent_tokenize(file_name, stop_words, tokenizer, num_processes=1, mask_technical=False):
+    num_processes = num_processes#cpu_count()
 
     f = open(file_name, 'r')
     sents = f.read().strip().split('\n')
@@ -115,7 +195,7 @@ def full_sent_tokenize(file_name, stop_words, mask_technical=False):
 
     print("------------------> [INFO] Intializing Parallel Dataset Preprocessing with {} Processes. Each processing {} sentences each".format(num_processes, chunk_size))
 
-    args = [(chunk, mask_technical, stop_words) for chunk in sentence_chunks]
+    args = [(chunk, mask_technical, stop_words, tokenizer) for chunk in sentence_chunks]
     with ProcessPoolExecutor(max_workers=num_processes) as executor:
         results = list(tqdm(
             executor.map(process_chunk, args),
@@ -126,8 +206,11 @@ def full_sent_tokenize(file_name, stop_words, mask_technical=False):
     for result in results:
         preprocessed_dict.update(result)
 
-    tok_sents = []
-    masked_sentences = []
+    preproc_values = list(preprocessed_dict.values())
+    preproc_array = np.array(preproc_values, dtype=object)
+    tok_sents = preproc_array[:, 1].tolist()
+    mask_candidates = preproc_array[:, 0].tolist()
+    # tok_mask_cand = {tuple(tok): mask for tok, mask in zip(tok_sents, mask_candidates)}
 
     for s in tok_sents:
         s.pop(0)
@@ -153,11 +236,16 @@ def full_sent_tokenize(file_name, stop_words, mask_technical=False):
         assert s[0] == start_tok and s[-1] == sep_tok
         assert len(s) == max_seq_length
         
+        
     attention_mask = []
+    detokenized_keys = []
     for s in res:
         attention_mask.append([1] * len(s) + [0] * (max_seq_length - len(s)))
+        detokenized_keys.append(tokenizer.convert_ids_to_tokens(s))
     
-    return {'input_ids': res, 'attention_mask': attention_mask}
+    # this will contain our masking candidates to send to data_collator:
+    tok_mask_cand = {tuple(detokenized_key): mask_candidate_list for detokenized_key, mask_candidate_list in zip(detokenized_keys, mask_candidates)}
+    return ({'input_ids': res, 'attention_mask': attention_mask}, tok_mask_cand)
 
 def get_min_and_last(values, label):
     min_val = min(values)
@@ -166,6 +254,10 @@ def get_min_and_last(values, label):
     last_epoch = len(values)
     print(f"{label} -> Min: {min_val} at epoch {min_epoch}, Last: {last_val} at epoch {last_epoch}")
     return min_val, min_epoch, last_val, last_epoch
+
+def update_training_conf_json(logging_dir, training_config:dict):
+    with open(logging_dir + '/training_config.json', 'w') as f:
+        json.dump(training_config, f)
 
 class MSC_Dataset(torch.utils.data.Dataset):
     def __init__(self, inp):
@@ -196,25 +288,56 @@ if __name__ == '__main__':
 
     print("Device name:", torch.cuda.get_device_name(torch.cuda.current_device()))
     print('using device:', device)
-
-
+    
     parser = ArgumentParser()
-    parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/train_norm.txt", type=str)
-    parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt", type=str)
-    parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/test_tech_tr_2005_150_32ge", type=str)
-    parser.add_argument('--cache_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/test_tech_tr_2005_150_32ge_cache", type=str)
+    parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/train_norm.txt", type=str)
+    parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/val_norm.txt", type=str)
+    parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/1990_tech", type=str)
+    parser.add_argument('--cache_dir', default=None, type=str)
+    parser.add_argument('--tech', default=True, type=bool)
     args = parser.parse_args()
 
     model_revision = 'main'
     # model_name = 'allenai/scibert_scivocab_uncased'
     model_name = "bert-base-uncased"
-    # model_name = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tr_2005_80_32ge/checkpoint-1920"
-    cache_dir = ensure_dir(args.cache_dir) if args.cache_dir else None
-    output_dir = ensure_dir(args.model_save_dir)
-    logging_dir = ensure_dir(output_dir + '_logs')
+
+    HYPERPARAMETERS = {
+    "per_device_train_batch_size" : 64,
+    "gradient_accumulation_steps" : 32,
+    "learning_rate" : 1e-4,
+    "num_train_epochs" : 80,
+    "logging_steps" : 8,
+    'mlm_probability' : 0.15,
+    'custom_mlm_probability' : 1.0,
+    "training_device" : training_device,
+    "NUM_FORZEN_LAYERS" : 10,
+    "max_seq_length" : 512
+    }
+    output_dir = ensure_dir(args.model_save_dir + '_{}_{}_{}ge'.format(os.path.basename(os.path.dirname(args.train_file)), 
+                                                                HYPERPARAMETERS['num_train_epochs'], 
+                                                                HYPERPARAMETERS['gradient_accumulation_steps']))
+
+    cache_dir = ensure_dir(args.cache_dir) if args.cache_dir else ensure_dir(output_dir + '/cache')
+    logging_dir = ensure_dir(output_dir + '/logs')
+    output_dir = ensure_dir(output_dir + r'/checkpoints')
+    technical_words_only = args.tech
 
     assert os.path.exists(args.train_file)
     assert os.path.exists(args.val_file)
+
+    training_config = {"train_dir" : args.train_file.replace('\\', '/'),
+                        "val_dir" : args.val_file.replace('\\', '/'),
+                        "mask_only_technical_words" : technical_words_only,
+                        "HYPERPARAMETERS" : HYPERPARAMETERS,
+                        "output_directories" : {"Model" : output_dir.replace('\\', '/'),
+                                                "Cache" : cache_dir.replace('\\', '/'),
+                                                "Logs" : logging_dir.replace('\\', '/')},
+                        "training_resumed" : None,
+                        "parallel_preprocessing" : 16,
+                        "training example_count" : 0,
+                        "validation example_count" : 0,
+                        "timeline" : {}}
+    update_training_conf_json(logging_dir, training_config)
 
     SEED = 42
     set_seed(SEED)
@@ -232,22 +355,34 @@ if __name__ == '__main__':
         'revision': model_revision,
         'use_auth_token': None,
     }
-    tokenizer = AutoTokenizer.from_pretrained(model_name, **tokenizer_kwargs)
+    main_tokenizer = AutoTokenizer.from_pretrained(model_name, **tokenizer_kwargs)
 
-    max_seq_length = 512
+    max_seq_length = HYPERPARAMETERS['max_seq_length']
 
-    start_tok = tokenizer.convert_tokens_to_ids('[CLS]')
-    sep_tok = tokenizer.convert_tokens_to_ids('[SEP]')
-    pad_tok = tokenizer.convert_tokens_to_ids('[PAD]')
+    start_tok = main_tokenizer.convert_tokens_to_ids('[CLS]')
+    sep_tok = main_tokenizer.convert_tokens_to_ids('[SEP]')
+    pad_tok = main_tokenizer.convert_tokens_to_ids('[PAD]')
 
-    training_preprocess_data = full_sent_tokenize(args.train_file, stop_words, mask_technical=True)
-    validation_preprocess_data = full_sent_tokenize(args.val_file, stop_words, mask_technical=True)
+    ## TODO: DO integration with training_config post this part:
+
+    dataset_loading_start_time = time.time()
+    training_preprocess_data, train_token_and_mask_cands_dict = full_sent_tokenize(args.train_file, stop_words, main_tokenizer,
+                                                  training_config['parallel_preprocessing'], mask_technical=technical_words_only)
+    validation_preprocess_data, eval_token_and_mask_cands_dict = full_sent_tokenize(args.val_file, stop_words, main_tokenizer,
+                                                    training_config['parallel_preprocessing'], mask_technical=technical_words_only)
+    token_and_mask_cands_dict = train_token_and_mask_cands_dict.copy()  
+    token_and_mask_cands_dict.update(eval_token_and_mask_cands_dict)   # Combine the traiing and evaluation mask candidates to represent the whole dataset
+
 
     train_dataset = MSC_Dataset(training_preprocess_data)
     eval_dataset = MSC_Dataset(validation_preprocess_data)
+    t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - dataset_loading_start_time))
+    training_config['timeline']['Dataset Loading'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+    training_config['training example_count'] = len(train_dataset)
+    training_config['validation example_count'] = len(eval_dataset)
+    update_training_conf_json(logging_dir, training_config)
 
     print(len(train_dataset), len(eval_dataset))
-
 
     model = BertForMaskedLM.from_pretrained(
         model_name,
@@ -258,45 +393,40 @@ if __name__ == '__main__':
         use_auth_token=None,
     )
 
-    NUM_FORZEN_LAYERS = 10
-    for i in range(NUM_FORZEN_LAYERS):
+    for i in range(HYPERPARAMETERS['NUM_FORZEN_LAYERS']):
         for param in model.bert.encoder.layer[i].parameters():
             param.requires_grad = False
 
-    model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(len(main_tokenizer))
     model.to(torch.device(device))
     # model = torch.nn.DataParallel(model)
 
-    data_collator = DataCollatorForWholeWordMask(tokenizer=tokenizer, mlm_probability=0.15)
-    HYPERPARAMETERS = {
-        "batch_size" : 64,
-        "grad_acc" : 4,
-        "lr" : 1e-4,
-        "epochs" : 60
-    }
+    # data_collator = DataCollatorForWholeWordMask(tokenizer=main_tokenizer, mlm_probability=HYPERPARAMETERS['mlm_probability'])
+    data_collator = CustomDataCollatorForWholeWordMask(tokenizer=main_tokenizer, tok_mask_cand=token_and_mask_cands_dict, mlm_probability=HYPERPARAMETERS['mlm_probability'], 
+                                                        custom_mlm_probability=HYPERPARAMETERS['custom_mlm_probability'])
 
     training_args = TrainingArguments(
         output_dir=output_dir,
-        per_device_train_batch_size=64,
-        per_device_eval_batch_size=64,
-        gradient_accumulation_steps=32,
+        per_device_train_batch_size=HYPERPARAMETERS['per_device_train_batch_size'],
+        per_device_eval_batch_size=HYPERPARAMETERS['per_device_train_batch_size'],
+        gradient_accumulation_steps=HYPERPARAMETERS['gradient_accumulation_steps'],
         evaluation_strategy='epoch',
         save_strategy='epoch',
         save_total_limit=4,
         load_best_model_at_end=True,
         warmup_ratio=0.048,
-        learning_rate=1e-4,
+        learning_rate=HYPERPARAMETERS['learning_rate'],
         weight_decay=1e-2,
         adam_beta1=0.9,
         adam_beta2=0.98,
         adam_epsilon=1e-6,
         max_grad_norm=0.0,
-        num_train_epochs=100,
+        num_train_epochs=HYPERPARAMETERS['num_train_epochs'],
         seed=SEED,
         # logging_strategy='no'
         logging_first_step=True,
         logging_strategy='steps',
-        logging_steps=8
+        logging_steps=HYPERPARAMETERS['logging_steps']
     )
 
     trainer = Trainer(
@@ -304,7 +434,7 @@ if __name__ == '__main__':
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        tokenizer=main_tokenizer,
         data_collator=data_collator,
         callbacks=[CustomLoggingCallback()]
     )
@@ -313,12 +443,24 @@ if __name__ == '__main__':
     print("Device Used: ", trainer.args.device)
     print(torch.cuda.current_device())
     resume = None if len(os.listdir(output_dir)) == 0 else True
-    train_res = trainer.train(resume_from_checkpoint=resume)
+    training_config['training_resumed'] = resume
+    update_training_conf_json(logging_dir, training_config)
 
+    train_start = time.time()
+    train_res = trainer.train(resume_from_checkpoint=resume)
     print(train_res)
+    t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - train_start))
+    training_config['timeline']['Training'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+    update_training_conf_json(logging_dir, training_config)
+
     torch.cuda.empty_cache()
+
+    eval_start_time = time.time()
     train_output = trainer.evaluate(train_dataset)
     eval_output = trainer.evaluate()
+    t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - eval_start_time))
+    training_config['timeline']['Evaluation'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+    update_training_conf_json(logging_dir, training_config)
 
 
     # Evaluating:
@@ -340,10 +482,17 @@ if __name__ == '__main__':
     epochs = [step // steps_per_epoch + 1 for step in steps]
 
     train_loss_min, train_loss_min_epoch, train_loss_last, train_loss_last_epoch = get_min_and_last(train_loss, "Training Loss")
+    training_config['Training Loss'] = f"Training Loss -> Min: {train_loss_min} at epoch {train_loss_min_epoch}, Last: {train_loss_last} at epoch {train_loss_last_epoch}"
+
     eval_loss_min, eval_loss_min_epoch, eval_loss_last, eval_loss_last_epoch = get_min_and_last(eval_loss, "Evaluation Loss")
+    training_config['Evaluation Loss'] = f"Evaluation Loss -> Min: {eval_loss_min} at epoch {eval_loss_min_epoch}, Last: {eval_loss_last} at epoch {eval_loss_last_epoch}"
 
     train_perplexity_min, train_perplexity_min_epoch, train_perplexity_last, train_perplexity_last_epoch = get_min_and_last(train_perplexity, "Training Perplexity")
+    training_config['Training Perplexity'] = f"Training Perplexity -> Min: {train_perplexity_min} at epoch {train_perplexity_min_epoch}, Last: {train_perplexity_last} at epoch {train_perplexity_last_epoch}"
+
     eval_perplexity_min, eval_perplexity_min_epoch, eval_perplexity_last, eval_perplexity_last_epoch = get_min_and_last(eval_perplexity, "Evaluation Perplexity")
+    training_config['Evaluation Perplexity'] = f"Evaluation Perplexity -> Min: {eval_perplexity_min} at epoch {eval_perplexity_min_epoch}, Last: {eval_perplexity_last} at epoch {eval_perplexity_last_epoch}"
+    update_training_conf_json(logging_dir, training_config)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
 
@@ -389,3 +538,21 @@ if __name__ == '__main__':
 
     print(train_output)
     print(eval_output)
+
+    torch.cuda.empty_cache()
+
+    testing_start_time = time.time()
+
+    print("[INFO] Training finished. Performing Checkpoint Evaluations...")
+    OBJ_MlmTest = test_mlm.TestingMLM()
+    for model_checkpoint in tqdm(os.listdir(output_dir)):
+        print('================================ [INFO] Testing Checkpoint - ', model_checkpoint, '[INFO] ================================')
+        PATH_model_checkpoint = os.path.join(output_dir, model_checkpoint)
+        PATH_output = os.path.join(logging_dir + '_' + model_checkpoint, 'simple')
+
+        OBJ_MlmTest.test(PATH_trained_bert_mlm=PATH_model_checkpoint, pth_txt=args.val_file, PATH_output=PATH_output, t_size=5, use_pipeline=True, ignore_stop_words=True)
+
+    # Save the training config for future reference
+    t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - testing_start_time))
+    training_config['timeline']['Custom Testing'] = f"%d Days : %d Hours : %d Mins : %d Seconds" % (t_val.day-1, t_val.hour, t_val.minute, t_val.second)
+    update_training_conf_json(logging_dir, training_config)

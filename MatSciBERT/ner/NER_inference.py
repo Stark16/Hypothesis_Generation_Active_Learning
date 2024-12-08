@@ -57,7 +57,7 @@ class NER_INF:
 
         return model
 
-    def infer_caption(self, sentence_caption:str, model:BERT_CRF):
+    def infer_caption(self, sentence_caption:str, model:BERT_CRF, training_mode:bool=False):
         """Perform inference on a caption
 
         Args:
@@ -82,14 +82,17 @@ class NER_INF:
         for token, label_id in zip(tokens, predicted_labels):
             if token in ["[CLS]", "[SEP]", "[PAD]"]:
                 continue
-            
-            if token.startswith("##"):
-                word += token[2:]
+            if training_mode:
+                results[token] = label_id
+
             else:
-                if word:
-                    results[word] = label
-                word = token
-                label = label_id
+                if token.startswith("##"):
+                    word += token[2:]
+                else:
+                    if word:
+                        results[word] = label
+                    word = token
+                    label = label_id
 
         if word:
             results[word] = label

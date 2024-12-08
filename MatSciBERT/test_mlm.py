@@ -66,7 +66,6 @@ class TestingMLM:
             for token in sample_tokens:
                 masked_sentence = lower_sentence.replace(token, '[MASK]', 1)
                 masked_sentences[masked_sentence] = token
-
         return masked_sentences
     
     # def mask_entities(self, sentence, entity_labels, target_entity_class=None, mask_non_technical=False):
