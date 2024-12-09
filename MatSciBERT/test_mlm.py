@@ -233,20 +233,23 @@ if __name__ == "__main__":
     
     # args = parser.parse_args()
     # PATH_model, PATH_val_txt, test_size, _ = args.m_dir, args.pth_txt, args.t_size, args.mask_non_technical
+    for checkpoint_name in os.listdir("/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/checkpoints"):
+        PATH_model = os.path.join("/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/checkpoints", checkpoint_name)
+        PATH_output = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/logs_" + checkpoint_name + '/simple'
+        PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/val_norm.txt"
+    # PATH_model = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/checkpoints/checkpoint-110"
+    # PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
+    # PATH_output = '/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/logs_checkpoint-110/pipeline_stp_wrd'
+        test_size = 500
+        use_pipeline = True
+        ignore_stop_words = True
 
-    PATH_model = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tr_2005_80_32ge/checkpoint-1920"
-    PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
-    PATH_output = 'mlm_tests/simple/2005_model'
-    test_size = 50
-    use_pipeline = True
-    ignore_stop_words = True
+        if use_pipeline:
+            PATH_output = PATH_output.replace('simple', 'pipeline')
+        if ignore_stop_words:
+            import nltk
+            nltk.download('stopwords')
+            PATH_output = PATH_output + '_stp_wrd'
 
-    if use_pipeline:
-        PATH_output = PATH_output.replace('simple', 'pipeline')
-    if ignore_stop_words:
-        import nltk
-        nltk.download('stopwords')
-        PATH_output = PATH_output + '_stp_wrd'
-
-    OBJ_MlmTest = TestingMLM()
-    OBJ_MlmTest.test(PATH_model, PATH_val_txt, PATH_output, test_size, use_pipeline, ignore_stop_words)
+        OBJ_MlmTest = TestingMLM()
+        OBJ_MlmTest.test(PATH_model, PATH_val_txt, PATH_output, test_size, use_pipeline, ignore_stop_words)
