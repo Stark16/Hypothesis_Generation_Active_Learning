@@ -1,7 +1,7 @@
 import os
 import time
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-training_device = "2"
+training_device = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = training_device
 import torch
 from pathlib import Path
@@ -64,7 +64,7 @@ HYPERPARAMETERS = {
     "per_device_train_batch_size" : 64,
     "gradient_accumulation_steps" : 32,
     "learning_rate" : 1e-4,
-    "num_train_epochs" : 3,
+    "num_train_epochs" : 150,
     "logging_steps" : 8,
     'mlm_probability' : 0.15,
     "training_device" : training_device
@@ -73,9 +73,9 @@ HYPERPARAMETERS = {
 parser = ArgumentParser()
 parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/train_norm.txt", type=str)
 parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1970/val_norm.txt", type=str)
-parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/test_tr", type=str)
+parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/all_mask_non_tech", type=str)
 parser.add_argument('--cache_dir', default=None, type=str)
-parser.add_argument('--tech', default=True, type=bool)
+parser.add_argument('--tech', default=False, type=bool)
 args = parser.parse_args()
 
 model_revision = 'main'
@@ -419,7 +419,7 @@ for model_checkpoint in tqdm(os.listdir(output_dir)):
     PATH_model_checkpoint = os.path.join(output_dir, model_checkpoint)
     PATH_output = os.path.join(logging_dir + '_' + model_checkpoint, 'simple')
 
-    OBJ_MlmTest.test(PATH_trained_bert_mlm=PATH_model_checkpoint, pth_txt=args.val_file, PATH_output=PATH_output, t_size=5, use_pipeline=True, ignore_stop_words=True)
+    OBJ_MlmTest.test(PATH_trained_bert_mlm=PATH_model_checkpoint, pth_txt=args.val_file, PATH_output=PATH_output, t_size=500, use_pipeline=True, ignore_stop_words=True)
 
 # Save the training config for future reference
 t_val = datetime(1,1,1) + timedelta(seconds=int(time.time() - testing_start_time))
