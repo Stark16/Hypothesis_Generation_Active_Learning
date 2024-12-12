@@ -1,7 +1,7 @@
 import os
 import time
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-training_device = "0"
+training_device = "1"
 os.environ["CUDA_VISIBLE_DEVICES"] = training_device
 import torch
 from pathlib import Path
@@ -169,15 +169,16 @@ def process_chunk(args):
     model_ner = OBJ_ner.initialize_infer()
     model_name = "bert-base-uncased"
     # tokenizer = AutoTokenizer.from_pretrained(model_name, **tokenizer_kwargs)
-
+    duplicate_sents_counter = 0
     preprossed_dict = {}
     for s in tqdm(sentences):
         entity_labels = OBJ_ner.infer_caption(s, model_ner, training_mode=True)
         masked_sents = mask_entities(s, entity_labels, stop_words, mask_technical=mask_technical)
+        if s in list(preprossed_dict.keys()):
+            duplicate_sents_counter += 1
         preprossed_dict[s] = [list(masked_sents.values()),                                                                  # mask_candidates
                               tokenizer(s, return_attention_mask=True, truncation=True, padding=True)['input_ids'],         # tokenized_raw
                               list(masked_sents.keys())]                                                                    # masked_sentences
-
 
     return preprossed_dict
 
@@ -292,7 +293,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--train_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/train_norm.txt", type=str)
     parser.add_argument('--val_file', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/val_norm.txt", type=str)
-    parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech", type=str)
+    parser.add_argument('--model_save_dir', default=r"/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/testing", type=str)
     parser.add_argument('--cache_dir', default=None, type=str)
     parser.add_argument('--tech', default=True, type=bool)
     args = parser.parse_args()
@@ -333,7 +334,7 @@ if __name__ == '__main__':
                                                 "Cache" : cache_dir.replace('\\', '/'),
                                                 "Logs" : logging_dir.replace('\\', '/')},
                         "training_resumed" : None,
-                        "parallel_preprocessing" : 16,
+                        "parallel_preprocessing" : 1,
                         "training example_count" : 0,
                         "validation example_count" : 0,
                         "timeline" : {}}
