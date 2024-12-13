@@ -32,6 +32,7 @@ class TestingMLM:
     def get_random_sentences(self, file_path, n):
         with open(file_path, 'r') as file:
             sentences = file.readlines()
+            n = len(sentences) if len(sentences) > n else n
         return random.sample(sentences, n)
 
     def mask_entities(self, sentence, entity_labels, target_entity_class=None, mask_non_technical=False, ignore_stop_words=False):
