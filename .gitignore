@@ -1,2 +1,5 @@
 datasets/*
-!.gitkeep
+/matscibert/ner/datasets/
+/matscibert/mlm_models/*
+__pycache__
+models
