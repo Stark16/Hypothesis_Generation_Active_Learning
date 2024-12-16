@@ -2,7 +2,7 @@ import os
 import sys
 import torch
 from transformers import AutoModelForMaskedLM
-from matscibert.ner.NER_inference import NER_INF
+from matscibert_inf.ner.NER_inference import NER_INF
 
 def load_dataset(file_path):
     with open(file_path, 'r') as f:
