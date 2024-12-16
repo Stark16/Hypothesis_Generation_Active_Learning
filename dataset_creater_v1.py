@@ -4,7 +4,9 @@ import torch
 from transformers import AutoModelForMaskedLM
 from matscibert_inf.ner.NER_inference import NER_INF
 
-class FeatureSpace:
+# single_mask_template
+
+class FeatureSpaceSingleTemplate:
 
     def __init__(self, selected_model):
         self.PATH_self_dir = os.path.dirname(os.path.realpath(__file__))
@@ -23,11 +25,11 @@ class FeatureSpace:
     def process_sentences(self, sentence):
         feature_dict = {}
         # for sentence in sentences:
-        ner_results = ner_inf.infer_caption(sentence, ner_model)
-        masked_sentence = " ".join([token if label == "O" else "[MASK]" for token, label in ner_results.items()])
+        # ner_results = ner_inf.infer_caption(sentence, ner_model)
+        # masked_sentence = " ".join([token if label == "O" else "[MASK]" for token, label in ner_results.items()])
 
         tokenizer = ner_inf.tokenizer
-        inputs = tokenizer(masked_sentence, return_tensors="pt", truncation=True, padding=True).to(self.device)
+        inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True).to(self.device)
 
         with torch.no_grad():
             outputs = self.model(**inputs, output_hidden_states=True)
@@ -62,10 +64,10 @@ if __name__ == "__main__":
     ner_inf = NER_INF()
     ner_model = ner_inf.initialize_infer()
 
-    QUERY_TEMPLATE = "The material [MASK] is [MASK] semiconductor"
+    QUERY_TEMPLATE = "The material [MASK] is [MASK] semiconductor."
 
     selected_model = "trc_60_2005/checkpoint-2880"
-    OBJ_FeatureSpace = FeatureSpace(selected_model)
+    OBJ_FeatureSpaceSingleTemplate = FeatureSpaceSingleTemplate(selected_model)
 
     for _ in range(10):
-        feature_space = OBJ_FeatureSpace.process_sentences(QUERY_TEMPLATE)
+        feature_space = OBJ_FeatureSpaceSingleTemplate.process_sentences(QUERY_TEMPLATE)
