@@ -241,7 +241,7 @@ if __name__ == "__main__":
     # PATH_checkpoint_set = args.m_dir
     for checkpoint_name in os.listdir(PATH_checkpoint_set):
         PATH_model = os.path.join(PATH_checkpoint_set, checkpoint_name)
-        PATH_output = PATH_checkpoint_set.split("checkpoints")[0] + "logs_" + checkpoint_name + '/simple'
+        PATH_output = PATH_checkpoint_set.split("checkpoints")[0] + "/logs_" + checkpoint_name + '/simple'
         PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
     # PATH_model = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/checkpoints/checkpoint-110"
     # PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
