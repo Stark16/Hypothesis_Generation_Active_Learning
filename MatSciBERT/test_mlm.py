@@ -3,6 +3,8 @@ import torch
 import matplotlib.pyplot as plt
 import argparse
 import os
+training_device = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = training_device
 from transformers import BertForMaskedLM, BertTokenizer, AutoConfig, AutoTokenizer, pipeline
 from colorama import Fore, Back, Style
 from tqdm import tqdm
@@ -32,7 +34,7 @@ class TestingMLM:
     def get_random_sentences(self, file_path, n):
         with open(file_path, 'r') as file:
             sentences = file.readlines()
-            n = len(sentences) if len(sentences) > n else n
+            n = len(sentences) if len(sentences) < n else n
         return random.sample(sentences, n)
 
     def mask_entities(self, sentence, entity_labels, target_entity_class=None, mask_non_technical=False, ignore_stop_words=False):
@@ -120,7 +122,7 @@ class TestingMLM:
         total_predictions = 0
         results = []
 
-        for sentence in sentences:
+        for sentence in tqdm(sentences):
             sentence = sentence.strip()
             entity_labels = self.OBJ_ner_inf.infer_caption(sentence, self.MODEL_ner)
             
@@ -198,6 +200,7 @@ class TestingMLM:
             PATH_output = PATH_output + '_stp_wrd'
             
         self.PATH_results_dir = os.path.join(self.PATH_self_dir, PATH_output)
+        os.makedirs(self.PATH_results_dir, exist_ok=True)
         if not os.path.exists(self.PATH_results_dir):
             os.makedirs(self.PATH_results_dir)
         df_columns=['UnMaksed', 'Predicted', 'GT_Word', 'P_Word', 'IsCorrect', 'IsTechEntity', 'EntityCls', 'ModelName']
@@ -225,19 +228,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run inference on masked tokens in sentences.")
     parser.add_argument('--m_dir', type=str, default="/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tr_2005_80_32ge/checkpoint-1920", 
                         help="Directory of the trained model.")
-    parser.add_argument('--pth_txt', type=str, default="/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2015/normalized_val.txt", 
+    parser.add_argument('--pth_txt', type=str, default="/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt", 
                         help="Path to the text file containing sentences.")
     parser.add_argument('--t_size', type=int, default=500, 
                         help="Number of sentences to sample from the text file.")
     parser.add_argument('--mask_non_technical', action='store_true', #default=True,
                         help="If set, masks non-technical words instead of technical entities.")
     
-    # args = parser.parse_args()
+    args = parser.parse_args()
     # PATH_model, PATH_val_txt, test_size, _ = args.m_dir, args.pth_txt, args.t_size, args.mask_non_technical
-    for checkpoint_name in os.listdir("/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/checkpoints"):
-        PATH_model = os.path.join("/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/checkpoints", checkpoint_name)
-        PATH_output = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/logs_" + checkpoint_name + '/simple'
-        PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/1990/val_norm.txt"
+    PATH_checkpoint_set = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_2005_150_32ge/checkpoints"
+    # PATH_checkpoint_set = args.m_dir
+    for checkpoint_name in os.listdir(PATH_checkpoint_set):
+        PATH_model = os.path.join(PATH_checkpoint_set, checkpoint_name)
+        PATH_output = PATH_checkpoint_set.split("checkpoints")[0] + "logs_" + checkpoint_name + '/simple'
+        PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
     # PATH_model = "/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/checkpoints/checkpoint-110"
     # PATH_val_txt = "/home/ppathak/Hypothesis_Generation_Active_Learning/datasets/semantic_kg/json_dataset/2005/val_norm.txt"
     # PATH_output = '/home/ppathak/Hypothesis_Generation_Active_Learning/MatSciBERT/trained_model/tech_1990_150_32ge/logs_checkpoint-110/pipeline_stp_wrd'
