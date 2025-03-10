@@ -19,11 +19,11 @@ This repository is divided into multiple branches, each contributing to the broa
 ### 📚 **MatSciBERT Fine-Tuning**  
 This branch adapts **MatSciBERT**, a domain-specific language model, to generate **embeddings** for scientific statements. Two models are trained—one on papers till 2015, and the other till 2024. We then extract embeddings from specific layers of these models and use them to create a **feature space** for material science knowledge. This space is used to predict new patterns and validate them by comparing with the 2024 feature space.
 
-### 🌳 **Feature Space (Hierarchical Embeddings)**  
-This branch explores **hierarchical embeddings**, where knowledge is structured in a **context-aware, tree-like** structure rather than high-dimensional space. This makes the AI’s reasoning more structured, allowing for **meaningful hypothesis prediction** by organizing scientific concepts based on their relationships and depth.
-
 ### ⚡ **Parallel Training Optimization**  
 Efficient training is key to large-scale hypothesis generation. This branch optimizes the **MatSciBERT pipeline** to achieve a **5× boost in training speed**. By restructuring the workflow, this enables faster and more effective learning, making the models more practical for real-world scientific research.
+
+### 🌳 **Feature Space (Hierarchical Embeddings)**  
+This branch explores **hierarchical embeddings**, where knowledge is structured in a **context-aware, tree-like** structure rather than high-dimensional space. This makes the AI’s reasoning more structured, allowing for **meaningful hypothesis prediction** by organizing scientific concepts based on their relationships and depth.
 
 ---
 
