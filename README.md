@@ -17,7 +17,7 @@ The research follows two main directions:
 This repository is divided into multiple branches, each contributing to the broader research goal:
 
 ### 📚 **MatSciBERT Fine-Tuning**  
-This branch adapts **MatSciBERT**, a domain-specific language model, to generate **embeddings** for scientific statements. Two models are trained—one on papers till 2015, and the other till 2024. We then extract embeddings from specific layers of these models and use them to create a **feature space** for material science knowledge. This space is used to predict new patterns and validate them by comparing with the 2024 feature space.
+This branch adapts **MatSciBERT**, a domain-specific language model, to generate **embeddings** for scientific statements. Two models are trained—one on papers till 2015, and the other till 2024. We then extract embeddings from specific layers of these models and use them to create a **feature space** for material science knowledge. This space is used to predict new patterns and validate them by comparing with the 2024 feature space. Our custom version of MatSciBERT is called **Semantic-KG-BERT**, as it is trained on a combination of the [**Semantic Scholar**]([url](https://www.semanticscholar.org/)) dataset and [**MatKG**]([url](https://openreview.net/pdf?id=cR1iE6MQ1y)).
 
 ### ⚡ **Parallel Training Optimization**  
 Efficient training is key to large-scale hypothesis generation. This branch optimizes the **MatSciBERT pipeline** to achieve a **5× boost in training speed**. By restructuring the workflow, this enables faster and more effective learning, making the models more practical for real-world scientific research.
@@ -32,3 +32,5 @@ This branch explores **hierarchical embeddings**, where knowledge is structured 
 ✔️ Predict **missing links in knowledge**  
 
 🚀 **This is just the beginning.** Future work will refine these models and extend them to other scientific fields. Feel free to explore any of the branches.
+
+---
