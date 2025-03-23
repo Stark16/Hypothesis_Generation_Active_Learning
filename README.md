@@ -1,4 +1,4 @@
-# 🚀 Towards Hypothesis Prediction using Active Learning [DePaul Research]
+# 🚀 Towards Hypothesis Prediction using Active Learning [[DePaul Research](https://drive.google.com/file/d/17-rAkKbAvTCTzBNMniW6QPe66BzO36h-/view?usp=sharing)]
 
 ## 🧠 **The Vision**  
 
@@ -9,6 +9,8 @@ The research follows two main directions:
 1. **🧩 Structuring Knowledge** – Creating **hierarchical embeddings** to represent scientific concepts in a more structured way. This approach will allow AI to **reason** like a researcher and reduce the **black-box** nature of current systems.
   
 2. **🎭 Hypothesis Prediction** – Training AI to **anticipate knowledge gaps** and suggest **scientific hypotheses**. This involves **fine-tuning language models** to understand research papers, detect gaps, and improve predictions over time.
+
+> To get a detailed synopsis of the research, check out [this link](https://drive.google.com/file/d/17-rAkKbAvTCTzBNMniW6QPe66BzO36h-/view?usp=sharing).
 
 ---
 
