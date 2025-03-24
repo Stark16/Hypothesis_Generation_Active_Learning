@@ -1,7 +1,9 @@
-# 🌌 Feature Space: Hierarchical Embeddings for Scientific Discovery  
+# 🌌 Feature Space: Hierarchical Embeddings for Scientific Discovery  [V2]
 
 ## 📖 Overview  
-The **Feature Space** branch explores a **theoretical approach** to embedding scientific knowledge in a structured, hierarchical manner. Instead of treating embeddings as isolated vector representations, this research aims to create a **context-aware feature space** where knowledge is stored and retrieved based on **hierarchical relationships** between concepts.  
+The **Feature Space** branch explores a **theoretical approach** to embedding scientific knowledge in a structured, hierarchical manner. Instead of treating embeddings as isolated vector representations, this research aims to create a **context-aware feature space** where knowledge is stored and retrieved based on **hierarchical relationships** between concepts. 
+
+> V2- This branch is exploring the use of on device LLMs, and various prompt styles to build **Context Tree** (V1)
 
 This approach is inspired by how humans organize and understand information—through **definitions, contexts, and hierarchical structures** rather than flat, disconnected embeddings.  For a deeper explaination of the approach check out the section after `9:40` at [this link](https://drive.google.com/file/d/17-rAkKbAvTCTzBNMniW6QPe66BzO36h-/view?usp=sharing).
 
