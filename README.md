@@ -12,6 +12,9 @@ The research follows two main directions:
 
 > To get a detailed synopsis of the research, check out [this link](https://drive.google.com/file/d/17-rAkKbAvTCTzBNMniW6QPe66BzO36h-/view?usp=sharing).
 
+![image](https://github.com/user-attachments/assets/b650a66d-18e1-48fd-97dd-43fe8e650bb9)
+
+
 ---
 
 ## 🔀 **Project Structure & Branches**  
