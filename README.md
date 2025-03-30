@@ -25,7 +25,7 @@ This branch adapts **MatSciBERT**, a domain-specific language model, to generate
 Efficient training is key to large-scale hypothesis generation. This branch optimizes the **MatSciBERT pipeline** to achieve a **5× boost in training speed**. By restructuring the training pipeline, this enables faster and more effective learning, making the models more practical for real-world scientific research.
 
 ### 🌳 **[Feature Space (Hierarchical Embeddings)](https://github.com/Stark16/Hypothesis_Generation_Active_Learning/tree/feature_space)**  
-This branch explores **hierarchical embeddings**, where knowledge is structured in a **context-aware, tree-like** structure rather than high-dimensional space. This makes the AI’s reasoning more structured, allowing for **meaningful hypothesis prediction** by organizing scientific concepts based on their relationships and depth.
+This branch explores **hierarchical embeddings**, a novel approach where knowledge is structured in a **context-aware, tree-like** structure rather than high-dimensional space. This makes the AI’s reasoning more structured, allowing for **meaningful hypothesis prediction** by organizing scientific concepts based on their relationships and depth.
 
 ---
 
