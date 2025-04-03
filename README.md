@@ -93,5 +93,3 @@ By comparing these two feature spaces, we aim to identify:
 - **MatKG Dataset**: [MatKG](https://matkg.org/)
 
 ---
-
-Let me know if this version is clearer!
