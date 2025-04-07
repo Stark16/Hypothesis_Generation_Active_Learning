@@ -1,39 +1,33 @@
 import re
 from collections import deque
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline 
+from matscibert_inf.ner.NER_inference import NER_INF
 import os
 import torch
 import json
+import random
 
-class TreeNode:
-    def __init__(self, keyword, depth=0, parent_context=None):
-        self.keyword = keyword  # Main keyword for this node
-        self.context = parent_context  # Context from parent node
-        self.prompt = self.generate_prompt()  # Generates query prompt
-        self.response = None  # Placeholder for LLM response
-        self.children = []  # Child nodes
-        self.depth = depth  # Depth level in tree
-
-    def generate_prompt(self):
-        """Generates a structured query prompt, incorporating parent context if available."""
-        base_prompt = (f"Can you give a general technical definition of {self.keyword} in a few lines? "
-                       f"If the word has multiple contexts, stick to a single context. "
-                       f"Simply state the technical words in this definition, but don't define them. "
-                       f"At the end of the definition, list out the technical words and the main context in this format - "
-                       "(only mention the strongest technical keywords in order of relevance to this keyword)\n"
-                       f"'tech_words=[a,b]-<{self.keyword}>'\n"
-                       f"'context=some description-<{self.keyword}>'")
-
-        if self.context:
-            base_prompt = f"({self.context})\n{base_prompt}"
-
-        return base_prompt
-    
-class Dfs:
-
-    def __init__(self, keyword):
+class Node:
+    def __init__(self, keyword:str, response:str, parent:object=None, depth:int=0):
         self.keyword = keyword
-        self. children = []
+        self.response = response
+        self.parent = parent
+        self.children = []
+        self.depth = depth
+
+    def add_child(self, child_node):
+        child_node.depth = self.depth + 1
+        self.children.append(child_node)
+    
+    def add_children(self, children_nodes):
+        for child_node in children_nodes:
+            self.add_child(child_node)
+
+    def is_leaf(self):
+        return len(self.children) == 0
+
+    def __repr__(self):
+        return f"Node(keyword={self.keyword}), children={self.children}, depth={self.depth}\n\nResponse='{self.response}'"
     
 class ContextTree:
 
@@ -48,27 +42,44 @@ class ContextTree:
             {"role" : "system", "content" : f"You are an AI exploring the topic {self.STARTING_KEYWORD} in {self.DOMAIN} context. You're defining keywords on factual knowledge."}
         ]
 
-        self.base_prompt = (f"Can you give a general technical definition of KEYWORD in a few lines? "
+        self.base_prompt = (f"Can you give a technical definition of <KEYWORD> in a few lines? "
                        f"If the word has multiple contexts, stick to a single context. "
                        f"Simply state the technical words in this definition, but don't define them. "
                        f"At the end of the definition, list out the technical words and the main context in this format - "
                        "(only mention the strongest technical keywords in order of relevance to this keyword)\n"
-                       f"'tech_words=[a,b]-<KEYWORD>'\n"
-                       f"'context=some description-<KEYWORD>'")
+                       f"'tech_words=[a,b]-<<KEYWORD>>'\n"
+                       f"'context=some description-<<KEYWORD>>'")
 
-        generation_args = { 
+        self.generation_args = { 
                             "max_new_tokens": 500, 
                             "return_full_text": False, 
                             "temperature": 0.0, 
                             "do_sample": False, 
                         }
         
-        self.linear_exploration(starting_keyword, generation_args)
+        self.NER = NER_INF()
+        self.NER_model = self.NER.initialize_infer()
+        
 
     def load_LLM(self, model_to_load):
         self.LLM_tokenizer = AutoTokenizer.from_pretrained(model_to_load, trust_remote_code=False)
         self.LLM_model = AutoModelForCausalLM.from_pretrained(model_to_load, device_map="cuda:0", torch_dtype="auto", trust_remote_code=False)
         self.pipe = pipeline("text-generation", model=self.LLM_model, tokenizer=self.LLM_tokenizer)
+
+    def _query(self, prompt:str):
+        """A Method that queries a given prompt to the LLM and returns the response.
+
+        Args:
+            prompt (str): the prompt to query
+
+        Returns:
+            str: the response from LLM
+        """
+        self.messages.append({"role" : "user", "content" : prompt})
+
+        output = self.pipe(self.messages, **self.generation_args)
+        response = output[0]['generated_text']
+        return response
 
 
     def extract_info(self, response, keyword):
@@ -82,20 +93,23 @@ class ContextTree:
         words = words_match.group(1).split(',') if words_match else []
         context = context_match.group(1).strip() if context_match else None
 
-        words = [word.strip() for word in words if word.strip()]
-        return words, context
+        filtered_keywords = []
+        for word in words:
+            word = word.strip()
+            if word not in filtered_keywords and len(word) > 1:
+                filtered_keywords.append(word)
 
-    def linear_exploration(self, starting_keyword, generation_args, depth_cap = 5):
+        return filtered_keywords, context
+
+
+    def linear_exploration(self, starting_keyword, depth_cap = 5):
         
         keyword = starting_keyword
 
         while depth_cap >=0:
-            prompt = self.base_prompt.replace("KEYWORD", keyword)
-            self.messages.append({"role" : "user", "content" : prompt})
-
-            output = self.pipe(self.messages, **generation_args)
-            response = output[0]['generated_text']
-
+            
+            prompt = self.base_prompt.replace("<KEYWORD>", keyword)
+            response = self._query(prompt)
             print(f"\n🔹 Depth: {depth_cap} | Keyword: {keyword}")
             print(f"📜 Prompt:\n{prompt}")
             print('-'*50)
@@ -107,50 +121,68 @@ class ContextTree:
             depth_cap -= 1
         with open('tree.json', 'w', encoding='utf-8') as f:
             json.dump({"content" : self.messages}, f)
-        
-    def dfs(self, node, depth, depth_cap=3):
-        if not node or depth > depth_cap:
-            return
-        
-        
-        for child in node.children:
-            self.dfs(child, depth + 1, depth_cap)
 
-    def bfs(self, root):
-        """
-        Performs a breadth-first traversal, guiding the user through manual LLM queries.
-        """
-        queue = deque([root])
+    def get_keywords(self, response:str, keyword:str, keyword_opt:str):
+        new_keywords, _ = self.extract_info(response, keyword)
+        ner_keywords = self.NER.infer_caption(response.split('\n\ntech_words=[')[0], self.NER_model)
+        ner_keywords = self.NER.remove_o_tag(ner_keywords, {})
 
+        ner_filtered = self.NER.infer_caption(response.split('tech_words=[')[1].split(']')[0], self.NER_model)
+        ner_filtered = self.NER.remove_o_tag(ner_filtered, {})
+
+        print(f"🔍 Keywords from the prompt: ", new_keywords)
+        print()
+        print(f"🔍 Keywords from the NER: ", ner_keywords)
+        print()
+        print(f"🔍 Keywords from the prompt filtered by the NER: ", ner_filtered)
+        if keyword_opt == 'LLM':
+            return new_keywords
+        elif keyword_opt == 'NER':
+            return ner_keywords
+        elif keyword_opt == 'FILTERED':
+            return ner_filtered
+        
+    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None):
+        """A method that performs BFS on the context tree for a given starting keyword.
+
+        Args:
+            starting_keyword (str): The starting keyword to eplore the tree for
+            depth_cap (int, optional): the maximum depth to go for each branch. Defaults to 4.
+            keyword_opt (str, optional): THe option to choose which approach to use for keyword extraction between LLM, NER, or BOTH. Defaults to 'LLM'.
+            seed (int, optional): _description_. Defaults to 0.
+        """
+        if seed:
+            torch.manual_seed(seed)
+        root_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword))
+        # Starting with the DFS tree-
+        NODE_root = Node(keyword=starting_keyword, response=root_response)
+        context_tree = {"nodes" : []}
+
+        queue = deque([NODE_root])
         while queue:
             node = queue.popleft()
-
-            print(f"\n🔹 Depth: {node.depth} | Keyword: {node.keyword}")
-            print(f"📜 Prompt:\n{node.prompt}")
-            print("="*100)
-
-            # Get user input (manual copy-paste of LLM response)
-            response = self._query(node.prompt)
-            node.response = response  # Store the response
-
-            # Extract new technical words & context
-            new_keywords, context = self.extract_info(response, node.keyword)
-            
-            if not new_keywords:
-                print(f"✅ No new keywords found. This is a leaf node.\n")
-                continue  # Stop if no new keywords
-
-            print(f"🔍 Extracted keywords: {new_keywords}")
-            print(f"📜 Extracted context: {context}")
-
-            # Create child nodes and add them to the queue
+            if node.depth > depth_cap:
+                continue
+            print("\n\n", "=" * 75)
+            print(f"📜 DEPTH - {node.depth} Root Response for keyword: {node.keyword} - {node.response}")
+            new_keywords = self.get_keywords(node.response, node.keyword, keyword_opt)
+            print("\n\n", "=" * 75)
             for keyword in new_keywords:
-                child_node = TreeNode(keyword, node.depth + 1, context)
-                node.children.append(child_node)
+                if keyword.lower() == node.keyword.lower():
+                    continue
+                child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword))
+                child_node = Node(keyword=keyword, response=child_response, depth=node.depth + 1)
+                node.add_child(child_node)
                 queue.append(child_node)
-            break
+
+            context_tree["nodes"].append(str(node))
+        
+        with open("context_tree.json", "w", encoding="utf-8") as f:
+            json.dump(context_tree, f, indent=4)
 
 
 if __name__ == "__main__":
-    
-    OBJ_context_tree = ContextTree(starting_keyword="thermal_conductivity", domain="material science")
+    starting_keyword = "heat coefficient"
+    domain = "material science"
+    OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
+    OBJ_context_tree.bfs(starting_keyword, seed=0)
