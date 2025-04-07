@@ -98,6 +98,60 @@ class NER_INF:
             results[word] = label
 
         return results
+    
+    def remove_o_tag(self, result_dict: dict, sub_hypothesis_terms: dict):
+        action_words = {}
+        grouped_term = ""
+        current_tag = None
+
+        for word, tag in result_dict.items():
+            if tag == 'O':
+                # If we're in a group, finalize it and reset
+                if grouped_term and current_tag:
+                    action_words[grouped_term] = current_tag
+                    if grouped_term + '_' + current_tag not in sub_hypothesis_terms:
+                        sub_hypothesis_terms[grouped_term + '_' + current_tag] = {
+                            grouped_term: current_tag
+                        }
+                    grouped_term = ""
+                    current_tag = None
+                continue
+
+            prefix, label = tag.split('-') if '-' in tag else (None, tag)
+
+            if prefix == 'B':  # Start of a new group
+                # If there's an existing group, finalize it
+                if grouped_term and current_tag:
+                    action_words[grouped_term] = current_tag
+                    if grouped_term + '_' + current_tag not in sub_hypothesis_terms:
+                        sub_hypothesis_terms[grouped_term + '_' + current_tag] = {
+                            grouped_term: current_tag
+                        }
+                # Start new group
+                grouped_term = word
+                current_tag = label
+            elif prefix == 'I' and current_tag == label:  # Continuation of the current group
+                grouped_term += f" {word}"
+            else:
+                # If `I-` is out of sync with the current tag, treat it as a new group
+                if grouped_term and current_tag:
+                    action_words[grouped_term] = current_tag
+                    if grouped_term + '_' + current_tag not in sub_hypothesis_terms:
+                        sub_hypothesis_terms[grouped_term + '_' + current_tag] = {
+                            grouped_term: current_tag
+                        }
+                grouped_term = word
+                current_tag = label
+
+        # Finalize the last group
+        if grouped_term and current_tag:
+            action_words[grouped_term] = current_tag
+            if grouped_term + '_' + current_tag not in sub_hypothesis_terms:
+                sub_hypothesis_terms[grouped_term + '_' + current_tag] = {
+                    grouped_term: current_tag
+                }
+
+        return action_words
 
 if __name__ == "__main__":
     test_sentence = "Roughening at low frequency was also attributed to platinum electrodissolution/electrodeposition during cycling[60]."
