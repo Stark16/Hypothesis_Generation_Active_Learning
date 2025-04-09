@@ -27,7 +27,7 @@ class Node:
         return len(self.children) == 0
 
     def __repr__(self):
-        return f"Node(keyword={self.keyword}), children={self.children}, depth={self.depth}\n\nResponse='{self.response}'"
+        return f"Node(keyword={self.keyword}), depth={self.depth}\n\nResponse='{self.response}'"
     
 class ContextTree:
 
@@ -35,6 +35,7 @@ class ContextTree:
                  model_to_load:str="microsoft/Phi-3.5-mini-instruct"):
         
         self.PATH_self_dir = os.path.dirname(os.path.realpath(__file__))
+        self.PATH_output_trees = os.path.join(self.PATH_self_dir, 'output_trees')
         self.load_LLM(model_to_load)
         self.STARTING_KEYWORD = starting_keyword
         self.DOMAIN = domain
@@ -43,6 +44,14 @@ class ContextTree:
         ]
 
         self.base_prompt = (f"Can you give a technical definition of <KEYWORD> in a few lines? "
+                       f"If the word has multiple contexts, stick to a single context. "
+                       f"Simply state the technical words in this definition, but don't define them. "
+                       f"At the end of the definition, list out the technical words and the main context in this format - "
+                       "(only mention the strongest technical keywords in order of relevance to this keyword)\n"
+                       f"'tech_words=[a,b]-<<KEYWORD>>'\n"
+                       f"'context=some description-<<KEYWORD>>'")
+        
+        self.base_keyword_prompt = (f"Can you give a technical definition of <KEYWORD> in a few lines? "
                        f"If the word has multiple contexts, stick to a single context. "
                        f"Simply state the technical words in this definition, but don't define them. "
                        f"At the end of the definition, list out the technical words and the main context in this format - "
@@ -156,7 +165,6 @@ class ContextTree:
         root_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword))
         # Starting with the DFS tree-
         NODE_root = Node(keyword=starting_keyword, response=root_response)
-        context_tree = {"nodes" : []}
 
         queue = deque([NODE_root])
         while queue:
@@ -171,18 +179,43 @@ class ContextTree:
                 if keyword.lower() == node.keyword.lower():
                     continue
                 child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword))
-                child_node = Node(keyword=keyword, response=child_response, depth=node.depth + 1)
+                child_node = Node(keyword=keyword, response=child_response, depth=node.depth + 1, parent=node)
                 node.add_child(child_node)
                 queue.append(child_node)
+        return NODE_root
 
-            context_tree["nodes"].append(str(node))
-        
-        with open("context_tree.json", "w", encoding="utf-8") as f:
-            json.dump(context_tree, f, indent=4)
+    def save_tree(self, starting_keyword:str, root_node: Node):
+        tree_dictionary = {}
+        lookup_dictionary = {}
 
+        def build_tree_recursive(node):
+            lookup_dictionary[node.keyword] = {
+                "content": str(node),
+                "depth": node.depth,
+                "parent": node.parent.keyword if node.parent else None
+            }
+
+            child_dict = {}
+            for child in node.children:
+                child_dict[child.keyword] = build_tree_recursive(child)
+
+            return child_dict
+
+        tree_dictionary[root_node.keyword] = build_tree_recursive(root_node)
+
+        with open(f"{starting_keyword}_tree.json", "w") as f:
+            json.dump(tree_dictionary, f, indent=4)
+
+        with open(f"{starting_keyword}_lookup_table.json", "w") as f:
+            json.dump(lookup_dictionary, f, indent=4)
+            
 
 if __name__ == "__main__":
-    starting_keyword = "heat coefficient"
+    keywords = ["heat coefficient", "Phase Diagram", "Diffusion Coefficient"]
+    # keywords = ["heat coefficient"]
     domain = "material science"
-    OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
-    OBJ_context_tree.bfs(starting_keyword, seed=0)
+
+    for starting_keyword in keywords:
+        OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
+        NODE_root = OBJ_context_tree.bfs(starting_keyword, seed=0, depth_cap=3)
+        OBJ_context_tree.save_tree(starting_keyword, NODE_root)
