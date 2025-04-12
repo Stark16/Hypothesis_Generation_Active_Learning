@@ -40,7 +40,7 @@ class ContextTree:
         self.STARTING_KEYWORD = starting_keyword
         self.DOMAIN = domain
         self.messages = [
-            {"role" : "system", "content" : f"You are an AI exploring the topic {self.STARTING_KEYWORD} in {self.DOMAIN} context. You're defining keywords on factual knowledge."}
+            {"role" : "system", "content" : f"You are an AI assistant exploring the topic {self.STARTING_KEYWORD} in {self.DOMAIN} context. You're defining keywords on factual knowledge."}
         ]
 
         self.base_prompt = (f"Can you give a technical definition of <KEYWORD> in a few lines? "
@@ -88,6 +88,7 @@ class ContextTree:
 
         output = self.pipe(self.messages, **self.generation_args)
         response = output[0]['generated_text']
+        self.messages.append({"role" : "assistant", "content" : response})
         return response
 
 
@@ -165,6 +166,7 @@ class ContextTree:
         root_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword))
         # Starting with the DFS tree-
         NODE_root = Node(keyword=starting_keyword, response=root_response)
+        depth_keyed_tree = {0 : [str(NODE_root)]}
 
         queue = deque([NODE_root])
         while queue:
@@ -197,25 +199,32 @@ class ContextTree:
 
             child_dict = {}
             for child in node.children:
-                child_dict[child.keyword] = build_tree_recursive(child)
+                child_dict[child.keyword] = {"depth" : child.depth, "response" : child.response.split('tech_words')[0], "children": build_tree_recursive(child)}
 
             return child_dict
 
         tree_dictionary[root_node.keyword] = build_tree_recursive(root_node)
 
-        with open(f"{starting_keyword}_tree.json", "w") as f:
+        output_dir = os.path.join(self.PATH_output_trees, self.DOMAIN)
+        os.makedirs(f"{output_dir}/{starting_keyword}", exist_ok=True)
+
+        with open(f"{output_dir}/{starting_keyword}/tree.json", "w") as f:
             json.dump(tree_dictionary, f, indent=4)
 
-        with open(f"{starting_keyword}_lookup_table.json", "w") as f:
+        with open(f"{output_dir}/{starting_keyword}/lookup_table.json", "w") as f:
             json.dump(lookup_dictionary, f, indent=4)
+            
+        with open(f"{output_dir}/{starting_keyword}/conversation.json", "w") as f:
+            conv = {['conversation'] : self.messages}
+            json.dump(conv, f, indent=4)
             
 
 if __name__ == "__main__":
     keywords = ["heat coefficient", "Phase Diagram", "Diffusion Coefficient"]
-    # keywords = ["heat coefficient"]
+    keywords = ["heat coefficient"]
     domain = "material science"
 
     for starting_keyword in keywords:
         OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
-        NODE_root = OBJ_context_tree.bfs(starting_keyword, seed=0, depth_cap=3)
+        NODE_root = OBJ_context_tree.bfs(starting_keyword, seed=0, depth_cap=1)
         OBJ_context_tree.save_tree(starting_keyword, NODE_root)
