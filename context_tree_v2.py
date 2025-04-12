@@ -215,7 +215,7 @@ class ContextTree:
             json.dump(lookup_dictionary, f, indent=4)
             
         with open(f"{output_dir}/{starting_keyword}/conversation.json", "w") as f:
-            conv = {['conversation'] : self.messages}
+            conv = {'conversation' : self.messages}
             json.dump(conv, f, indent=4)
             
 
@@ -226,5 +226,5 @@ if __name__ == "__main__":
 
     for starting_keyword in keywords:
         OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
-        NODE_root = OBJ_context_tree.bfs(starting_keyword, seed=0, depth_cap=1)
+        NODE_root = OBJ_context_tree.bfs(starting_keyword, seed=0, depth_cap=0)
         OBJ_context_tree.save_tree(starting_keyword, NODE_root)
