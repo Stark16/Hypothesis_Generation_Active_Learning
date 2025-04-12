@@ -5,3 +5,5 @@ __pycache__
 models
 MatSciBERT
 .cache
+output_trees/*
+!output_trees/.gitkeep
