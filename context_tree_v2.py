@@ -1,11 +1,11 @@
 import re
 from collections import deque
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline 
+from transformers import AutoTokenizer, AutoModelForCausalLM 
 from matscibert_inf.ner.NER_inference import NER_INF
 import os
 import torch
 import json
-import random
+from tqdm import tqdm
 
 class Node:
     def __init__(self, keyword:str, response:str, parent:object=None, depth:int=0):
@@ -60,22 +60,19 @@ class ContextTree:
                        f"'context=some description-<<KEYWORD>>'")
 
         self.generation_args = { 
-                            "max_new_tokens": 500, 
-                            "return_full_text": False, 
-                            "temperature": 0.0, 
-                            "do_sample": False, 
+                            "max_new_tokens": 512, 
+                            "temperature": 0.05, 
                         }
         
         self.NER = NER_INF()
         self.NER_model = self.NER.initialize_infer()
         
 
-    def load_LLM(self, model_to_load):
-        self.LLM_tokenizer = AutoTokenizer.from_pretrained(model_to_load, trust_remote_code=False)
-        self.LLM_model = AutoModelForCausalLM.from_pretrained(model_to_load, device_map="cuda:0", torch_dtype="auto", trust_remote_code=False)
-        self.pipe = pipeline("text-generation", model=self.LLM_model, tokenizer=self.LLM_tokenizer)
+    def load_LLM(self, model_to_load, LLM_device_map:str="auto"):
+        self.LLM_tokenizer = AutoTokenizer.from_pretrained(model_to_load, trust_remote_code=False, padding_side='left')
+        self.LLM_model = AutoModelForCausalLM.from_pretrained(model_to_load, device_map=LLM_device_map, torch_dtype="auto", trust_remote_code=False)
 
-    def _query(self, prompt:str):
+    def _query(self, prompt:str, remember_raw_response:bool=True):
         """A Method that queries a given prompt to the LLM and returns the response.
 
         Args:
@@ -86,9 +83,18 @@ class ContextTree:
         """
         self.messages.append({"role" : "user", "content" : prompt})
 
-        output = self.pipe(self.messages, **self.generation_args)
-        response = output[0]['generated_text']
-        self.messages.append({"role" : "assistant", "content" : response})
+        tokenized_chat = self.LLM_tokenizer.apply_chat_template(self.messages, add_generation_prompt=True, return_tensors="pt")
+        output = self.LLM_model.generate(tokenized_chat, **self.generation_args)
+        output = self.LLM_tokenizer.batch_decode(output, skip_special_tokens=False, clean_up_tokenization_spaces=True)
+        response = output[0].split("<|assistant|>")[-1].split("<|end|>")[0]
+        # print(output)
+        # print("-" * 75)
+        # print(response)
+        # response = output[0]
+        if remember_raw_response:
+            self.messages.append({"role" : "assistant", "content" : response})
+        else:
+            self.messages.append({"role" : "assistant", "content" : response.split('\n\ntech_words=[')[0]})
         return response
 
 
@@ -112,7 +118,7 @@ class ContextTree:
         return filtered_keywords, context
 
 
-    def linear_exploration(self, starting_keyword, depth_cap = 5):
+    def linear_exploration(self, starting_keyword, depth_cap = 5, logger=False):
         
         keyword = starting_keyword
 
@@ -120,11 +126,12 @@ class ContextTree:
             
             prompt = self.base_prompt.replace("<KEYWORD>", keyword)
             response = self._query(prompt)
-            print(f"\n🔹 Depth: {depth_cap} | Keyword: {keyword}")
-            print(f"📜 Prompt:\n{prompt}")
-            print('-'*50)
-            print("📜 Reponse: ", response)
-            print("="*100)
+            if logger:
+                print(f"\n🔹 Depth: {depth_cap} | Keyword: {keyword}")
+                print(f"📜 Prompt:\n{prompt}")
+                print('-'*50)
+                print("📜 Reponse: ", response)
+                print("="*100)
 
             self.messages.append({"role" : "assistant", "content" : response})
             keyword = re.search(r"tech_words=\[(.*?)\]-<" + re.escape(keyword) + r">", response)[0].split('[')[1].split(']')[0].split()[0][:-1]
@@ -152,7 +159,7 @@ class ContextTree:
         elif keyword_opt == 'FILTERED':
             return ner_filtered
         
-    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None):
+    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None, remember_raw_response:bool=True):
         """A method that performs BFS on the context tree for a given starting keyword.
 
         Args:
@@ -163,10 +170,9 @@ class ContextTree:
         """
         if seed:
             torch.manual_seed(seed)
-        root_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword))
-        # Starting with the DFS tree-
+        root_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword), remember_raw_response)
+        # Starting with the BFS tree-
         NODE_root = Node(keyword=starting_keyword, response=root_response)
-        depth_keyed_tree = {0 : [str(NODE_root)]}
 
         queue = deque([NODE_root])
         while queue:
@@ -174,19 +180,20 @@ class ContextTree:
             if node.depth > depth_cap:
                 continue
             print("\n\n", "=" * 75)
-            print(f"📜 DEPTH - {node.depth} Root Response for keyword: {node.keyword} - {node.response}")
+            print(f"📜 DEPTH - {node.depth} Key keyword: {node.keyword}")
             new_keywords = self.get_keywords(node.response, node.keyword, keyword_opt)
             print("\n\n", "=" * 75)
             for keyword in new_keywords:
                 if keyword.lower() == node.keyword.lower():
                     continue
-                child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword))
+                child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword), remember_raw_response)
                 child_node = Node(keyword=keyword, response=child_response, depth=node.depth + 1, parent=node)
                 node.add_child(child_node)
                 queue.append(child_node)
+
         return NODE_root
 
-    def save_tree(self, starting_keyword:str, root_node: Node):
+    def save_tree(self, starting_keyword:str, root_node: Node, run_n:int=None):
         tree_dictionary = {}
         lookup_dictionary = {}
 
@@ -203,18 +210,23 @@ class ContextTree:
 
             return child_dict
 
-        tree_dictionary[root_node.keyword] = build_tree_recursive(root_node)
+        # tree_dictionary[root_node.keyword] = build_tree_recursive(root_node)
+        tree_dictionary[root_node.keyword] = {"depth" : root_node.depth, "response" : root_node.response.split('tech_words')[0], 
+                                              "children": build_tree_recursive(root_node)}
 
-        output_dir = os.path.join(self.PATH_output_trees, self.DOMAIN)
-        os.makedirs(f"{output_dir}/{starting_keyword}", exist_ok=True)
+        output_dir = os.path.join(self.PATH_output_trees, self.DOMAIN, starting_keyword)
+        if run_n:
+            output_dir = os.path.join(output_dir, 'run_' + str(run_n))
 
-        with open(f"{output_dir}/{starting_keyword}/tree.json", "w") as f:
+        os.makedirs(output_dir, exist_ok=True)
+
+        with open(f"{output_dir}/tree.json", "w") as f:
             json.dump(tree_dictionary, f, indent=4)
 
-        with open(f"{output_dir}/{starting_keyword}/lookup_table.json", "w") as f:
+        with open(f"{output_dir}/lookup_table.json", "w") as f:
             json.dump(lookup_dictionary, f, indent=4)
             
-        with open(f"{output_dir}/{starting_keyword}/conversation.json", "w") as f:
+        with open(f"{output_dir}/conversation.json", "w") as f:
             conv = {'conversation' : self.messages}
             json.dump(conv, f, indent=4)
             
@@ -223,8 +235,13 @@ if __name__ == "__main__":
     keywords = ["heat coefficient", "Phase Diagram", "Diffusion Coefficient"]
     keywords = ["heat coefficient"]
     domain = "material science"
+    num_runs_per_tree = 2
 
     for starting_keyword in keywords:
-        OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
-        NODE_root = OBJ_context_tree.bfs(starting_keyword, seed=0, depth_cap=0)
-        OBJ_context_tree.save_tree(starting_keyword, NODE_root)
+        for run_n in range(num_runs_per_tree):
+            OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
+            NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=2, remember_raw_response=False)
+            OBJ_context_tree.save_tree(starting_keyword, NODE_root, run_n=run_n+1)
+
+            # making sure to clear memory before each run-
+            torch.cuda.empty_cache()
