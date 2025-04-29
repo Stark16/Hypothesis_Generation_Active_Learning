@@ -87,15 +87,52 @@ class ContextTree:
         output = self.LLM_model.generate(tokenized_chat, **self.generation_args)
         output = self.LLM_tokenizer.batch_decode(output, skip_special_tokens=False, clean_up_tokenization_spaces=True)
         response = output[0].split("<|assistant|>")[-1].split("<|end|>")[0]
-        # print(output)
-        # print("-" * 75)
-        # print(response)
-        # response = output[0]
+
         if remember_raw_response:
             self.messages.append({"role" : "assistant", "content" : response})
         else:
             self.messages.append({"role" : "assistant", "content" : response.split('\n\ntech_words=[')[0]})
         return response
+    
+    def _query_batch(self, keywords:list, remember_raw_response:bool=True):
+        """A Method that queries a given prompt to the LLM and returns the response.
+
+        Args:
+            keywords (list): list of keywords to batch query
+
+        Returns:
+            batch_responses: list of responses from LLM for all keywords
+        """
+
+        batch_msgs = []
+
+        # first we need to create the conversation history list for each keyword in the batch-
+        for keyword in keywords:
+            curr_messages_tree = self.messages.copy()
+            curr_messages_tree.append({"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)})
+            batch_msgs.append(curr_messages_tree)
+
+        # Then we query all the keywords in the batch together-
+        batch_tokenized_chat = self.LLM_tokenizer.apply_chat_template(batch_msgs, add_generation_prompt=True, return_tensors="pt", padding=True)
+        batch_output = self.LLM_model.generate(batch_tokenized_chat, **self.generation_args)
+        batch_output = self.LLM_tokenizer.batch_decode(batch_output, skip_special_tokens=False, clean_up_tokenization_spaces=True)
+
+        # Now, it is time to update the messages list to update the converation
+        # This update needs to happen in the ordet the keywords are explored-
+        batch_responses = []
+        for i, keyword in enumerate(keywords):
+            response = batch_output[i][0].split("<|assistant|>")[-1].split("<|end|>")[0]
+            batch_responses.append(response)
+            # First store the prompt of the current keyword-
+            self.messages.append({"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)})
+            # Then store the response for that prompt
+            if remember_raw_response:
+                self.messages.append({"role" : "assistant", "content" : response})
+            else:
+                self.messages.append({"role" : "assistant", "content" : response.split('\n\ntech_words=[')[0]})
+            
+
+        return batch_responses
 
 
     def extract_info(self, response, keyword):
@@ -112,7 +149,7 @@ class ContextTree:
         filtered_keywords = []
         for word in words:
             word = word.strip()
-            if word not in filtered_keywords and len(word) > 1:
+            if word not in filtered_keywords and len(word) > 1 and word.lower() != keyword.lower():
                 filtered_keywords.append(word)
 
         return filtered_keywords, context
@@ -141,25 +178,25 @@ class ContextTree:
 
     def get_keywords(self, response:str, keyword:str, keyword_opt:str):
         new_keywords, _ = self.extract_info(response, keyword)
-        ner_keywords = self.NER.infer_caption(response.split('\n\ntech_words=[')[0], self.NER_model)
-        ner_keywords = self.NER.remove_o_tag(ner_keywords, {})
+        # ner_keywords = self.NER.infer_caption(response.split('\n\ntech_words=[')[0], self.NER_model)
+        # ner_keywords = self.NER.remove_o_tag(ner_keywords, {})
 
-        ner_filtered = self.NER.infer_caption(response.split('tech_words=[')[1].split(']')[0], self.NER_model)
-        ner_filtered = self.NER.remove_o_tag(ner_filtered, {})
+        # ner_filtered = self.NER.infer_caption(response.split('tech_words=[')[1].split(']')[0], self.NER_model)
+        # ner_filtered = self.NER.remove_o_tag(ner_filtered, {})
 
         print(f"🔍 Keywords from the prompt: ", new_keywords)
         print()
-        print(f"🔍 Keywords from the NER: ", ner_keywords)
-        print()
-        print(f"🔍 Keywords from the prompt filtered by the NER: ", ner_filtered)
+        # print(f"🔍 Keywords from the NER: ", ner_keywords)
+        # print()
+        # print(f"🔍 Keywords from the prompt filtered by the NER: ", ner_filtered)
         if keyword_opt == 'LLM':
             return new_keywords
-        elif keyword_opt == 'NER':
-            return ner_keywords
-        elif keyword_opt == 'FILTERED':
-            return ner_filtered
+        # elif keyword_opt == 'NER':
+        #     return ner_keywords
+        # elif keyword_opt == 'FILTERED':
+        #     return ner_filtered
         
-    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None, remember_raw_response:bool=True):
+    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None, remember_raw_response:bool=True, batch_query:bool=False):
         """A method that performs BFS on the context tree for a given starting keyword.
 
         Args:
@@ -170,23 +207,35 @@ class ContextTree:
         """
         if seed:
             torch.manual_seed(seed)
-        root_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword), remember_raw_response)
         # Starting with the BFS tree-
-        NODE_root = Node(keyword=starting_keyword, response=root_response)
+        NODE_root = Node(keyword=starting_keyword, response=None)
 
         queue = deque([NODE_root])
         while queue:
             node = queue.popleft()
             if node.depth > depth_cap:
                 continue
+
+            # Now we wanna make sure the node we are about to explore has been prompted-
+            if node.response == None:
+                node_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword), remember_raw_response)
+                node.response = node_response
             print("\n\n", "=" * 75)
             print(f"📜 DEPTH - {node.depth} Key keyword: {node.keyword}")
             new_keywords = self.get_keywords(node.response, node.keyword, keyword_opt)
             print("\n\n", "=" * 75)
-            for keyword in new_keywords:
+
+            # Prune the current keyword from the batch:
+            if batch_query:
+                batch_responses = self._query_batch(new_keywords, remember_raw_response)
+
+            for i, keyword in enumerate(new_keywords):
                 if keyword.lower() == node.keyword.lower():
                     continue
-                child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword), remember_raw_response)
+                if batch_query:
+                    child_response = batch_responses[i]
+                else:
+                    child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword), remember_raw_response)
                 child_node = Node(keyword=keyword, response=child_response, depth=node.depth + 1, parent=node)
                 node.add_child(child_node)
                 queue.append(child_node)
@@ -235,12 +284,12 @@ if __name__ == "__main__":
     keywords = ["heat coefficient", "Phase Diagram", "Diffusion Coefficient"]
     keywords = ["heat coefficient"]
     domain = "material science"
-    num_runs_per_tree = 2
+    num_runs_per_tree = 3
 
     for starting_keyword in keywords:
         for run_n in range(num_runs_per_tree):
             OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
-            NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=2, remember_raw_response=False)
+            NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=1, remember_raw_response=False, batch_query=False)
             OBJ_context_tree.save_tree(starting_keyword, NODE_root, run_n=run_n+1)
 
             # making sure to clear memory before each run-
