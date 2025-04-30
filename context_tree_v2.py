@@ -61,7 +61,8 @@ class ContextTree:
 
         self.generation_args = { 
                             "max_new_tokens": 512, 
-                            "temperature": 0.05, 
+                            "temperature": 0.05,
+                            
                         }
         
         self.NER = NER_INF()
@@ -72,44 +73,59 @@ class ContextTree:
         self.LLM_tokenizer = AutoTokenizer.from_pretrained(model_to_load, trust_remote_code=False, padding_side='left')
         self.LLM_model = AutoModelForCausalLM.from_pretrained(model_to_load, device_map=LLM_device_map, torch_dtype="auto", trust_remote_code=False)
 
-    def _query(self, prompt:str, remember_raw_response:bool=True):
-        """A Method that queries a given prompt to the LLM and returns the response.
+    def _query(self, prompt:str, remember_raw_response:bool=True, no_history:bool=False):
+        """A Method that queries a given prompt with appropriate settings
 
         Args:
-            prompt (str): the prompt to query
+            prompt (str): the prompt to give to the generative model
+            remember_raw_response (bool, optional): if set to False the model remembers the whole raw response for future context. Defaults to True.
+            no_history (bool, optional): If set to True the model context is isolated for each prompt. Defaults to False.
 
         Returns:
-            str: the response from LLM
+            str: The response from the model as string
         """
         self.messages.append({"role" : "user", "content" : prompt})
-
-        tokenized_chat = self.LLM_tokenizer.apply_chat_template(self.messages, add_generation_prompt=True, return_tensors="pt")
+        
+        if no_history:
+            messages = [self.messages[0], {"role" : "user", "content" : prompt}]
+            tokenized_chat = self.LLM_tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
+        else:
+            tokenized_chat = self.LLM_tokenizer.apply_chat_template(self.messages, add_generation_prompt=True, return_tensors="pt")
         output = self.LLM_model.generate(tokenized_chat, **self.generation_args)
         output = self.LLM_tokenizer.batch_decode(output, skip_special_tokens=False, clean_up_tokenization_spaces=True)
         response = output[0].split("<|assistant|>")[-1].split("<|end|>")[0]
 
+        if no_history:
+            return response
+        
         if remember_raw_response:
             self.messages.append({"role" : "assistant", "content" : response})
         else:
             self.messages.append({"role" : "assistant", "content" : response.split('\n\ntech_words=[')[0]})
         return response
     
-    def _query_batch(self, keywords:list, remember_raw_response:bool=True):
-        """A Method that queries a given prompt to the LLM and returns the response.
+    def _query_batch(self, keywords:list, remember_raw_response:bool=True, no_history:bool=False):
+        """Method similar to _query only it batch queries a batch on len(keywords) prompts where n is number of nodes in a level of context tree
 
         Args:
-            keywords (list): list of keywords to batch query
+            keywords (list): list of keywords that needs to be batch processed
+            remember_raw_response (bool, optional): if set to False the model remembers the whole raw response for future context. Defaults to True.
+            no_history (bool, optional): If set to True the model context is isolated for each prompt. Defaults to False.
 
         Returns:
-            batch_responses: list of responses from LLM for all keywords
+            list: a list of responses from the model with string elements as individual responses.
         """
 
         batch_msgs = []
 
         # first we need to create the conversation history list for each keyword in the batch-
+        # depending on cofig argument no_history, the lenght of the context varies. It is usually = 2 if the flag is True.
         for keyword in keywords:
-            curr_messages_tree = self.messages.copy()
-            curr_messages_tree.append({"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)})
+            if no_history:
+                curr_messages_tree = [self.messages[0], {"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)}]
+            else:
+                curr_messages_tree = self.messages.copy()
+                curr_messages_tree.append({"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)})
             batch_msgs.append(curr_messages_tree)
 
         # Then we query all the keywords in the batch together-
@@ -121,17 +137,19 @@ class ContextTree:
         # This update needs to happen in the ordet the keywords are explored-
         batch_responses = []
         for i, keyword in enumerate(keywords):
-            response = batch_output[i][0].split("<|assistant|>")[-1].split("<|end|>")[0]
+            response = batch_output[i].split("<|assistant|>")[-1].split("<|end|>")[0]
             batch_responses.append(response)
-            # First store the prompt of the current keyword-
-            self.messages.append({"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)})
-            # Then store the response for that prompt
-            if remember_raw_response:
-                self.messages.append({"role" : "assistant", "content" : response})
-            else:
-                self.messages.append({"role" : "assistant", "content" : response.split('\n\ntech_words=[')[0]})
-            
 
+            # Now, we only track the responses if no_history is False-
+            if no_history == False:
+                # First store the prompt of the current keyword-
+                self.messages.append({"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)})
+                # Then store the response for that prompt
+                if remember_raw_response:
+                    self.messages.append({"role" : "assistant", "content" : response})
+                else:
+                    self.messages.append({"role" : "assistant", "content" : response.split('\n\ntech_words=[')[0]})
+            
         return batch_responses
 
 
@@ -140,8 +158,8 @@ class ContextTree:
         Extracts both technical words and context from LLM response using regex.
         Returns a tuple (list of extracted words, extracted context).
         """
-        words_match = re.search(r"tech_words=\[(.*?)\]-<" + re.escape(keyword) + r">", response)
-        context_match = re.search(r"context=(.*?)-<" + re.escape(keyword) + r">", response)
+        words_match = re.search(r"(?i)tech_words=\[(.*?)\]-<", response)
+        context_match = re.search(r"(?i)context=(.*?)-<", response)
 
         words = words_match.group(1).split(',') if words_match else []
         context = context_match.group(1).strip() if context_match else None
@@ -196,7 +214,8 @@ class ContextTree:
         # elif keyword_opt == 'FILTERED':
         #     return ner_filtered
         
-    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None, remember_raw_response:bool=True, batch_query:bool=False):
+    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None, 
+            remember_raw_response:bool=True, batch_query:bool=False, no_history:bool=False):
         """A method that performs BFS on the context tree for a given starting keyword.
 
         Args:
@@ -226,8 +245,8 @@ class ContextTree:
             print("\n\n", "=" * 75)
 
             # Prune the current keyword from the batch:
-            if batch_query:
-                batch_responses = self._query_batch(new_keywords, remember_raw_response)
+            if batch_query and len(new_keywords)>0:
+                batch_responses = self._query_batch(new_keywords, remember_raw_response, no_history)
 
             for i, keyword in enumerate(new_keywords):
                 if keyword.lower() == node.keyword.lower():
@@ -284,13 +303,15 @@ if __name__ == "__main__":
     keywords = ["heat coefficient", "Phase Diagram", "Diffusion Coefficient"]
     keywords = ["heat coefficient"]
     domain = "material science"
-    num_runs_per_tree = 3
+    num_runs_per_tree = 1
+    temprature_values = [50]
+    for temprature in temprature_values:
+        for starting_keyword in keywords:
+            for run_n in range(num_runs_per_tree):
+                OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
+                OBJ_context_tree.generation_args['temperature'] = temprature/100
+                NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=1, remember_raw_response=False, batch_query=True, no_history=True)
+                OBJ_context_tree.save_tree(starting_keyword + '_' +str(temprature_values), NODE_root, run_n=run_n+1)
 
-    for starting_keyword in keywords:
-        for run_n in range(num_runs_per_tree):
-            OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
-            NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=1, remember_raw_response=False, batch_query=False)
-            OBJ_context_tree.save_tree(starting_keyword, NODE_root, run_n=run_n+1)
-
-            # making sure to clear memory before each run-
-            torch.cuda.empty_cache()
+                # making sure to clear memory before each run-
+                torch.cuda.empty_cache()
