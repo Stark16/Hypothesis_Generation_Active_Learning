@@ -1,6 +1,7 @@
 import context_tree_v2
 import os
 import json
+from tqdm import tqdm
 import numpy as np
 
 from transformers import AutoTokenizer, AutoModel
@@ -102,13 +103,13 @@ class EmbdTree:
  
 if __name__ == '__main__':
     
-    domain = "material science"
-    topic = "heat coefficient_r5"
+    domain = "biomedical"
+    topic = "endometriosis_[40]"
     PATH_self_dir = os.path.dirname(os.path.realpath(__file__))
     PATH_current_topic = os.path.join(PATH_self_dir, "output_trees", domain, topic)
 
     OBJ_EmbTree = EmbdTree()
-    for subtree_dir in os.listdir(PATH_current_topic):
+    for subtree_dir in tqdm(os.listdir(PATH_current_topic)):
 
         PATH_tree = os.path.join(PATH_current_topic, subtree_dir, 'tree.json')
         PATH_out_embd_tree = os.path.join(PATH_current_topic, subtree_dir, 'embdng_tree.json')
