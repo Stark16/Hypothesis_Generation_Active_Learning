@@ -6,6 +6,7 @@ import os
 import torch
 import json
 from tqdm import tqdm
+import uuid
 
 class Node:
     def __init__(self, keyword:str, response:str, parent:object=None, depth:int=0):
@@ -43,13 +44,13 @@ class ContextTree:
             {"role" : "system", "content" : f"You are an AI assistant exploring the topic {self.STARTING_KEYWORD} in {self.DOMAIN} context. You're defining keywords on factual knowledge."}
         ]
 
-        self.base_prompt = (f"Can you give a technical definition of <KEYWORD> in a few lines? "
-                       f"If the word has multiple contexts, stick to a single context. "
-                       f"Simply state the technical words in this definition, but don't define them. "
-                       f"At the end of the definition, list out the technical words and the main context in this format - "
-                       "(only mention the strongest technical keywords in order of relevance to this keyword)\n"
-                       f"'tech_words=[a,b]-<<KEYWORD>>'\n"
-                       f"'context=some description-<<KEYWORD>>'")
+        self.base_prompt = (f"Give a short technical definition of <KEYWORD> in a few lines. "
+                            f"Stick to one specific context. Do NOT explain the technical words. "
+                            f"After the definition, strictly output the following two lines — no deviation:\n\n"
+                            f"tech_words=[a, b, c]-<<KEYWORD>>\n"
+                            f"context=your context here-<<KEYWORD>>\n\n"
+                            f"(Do NOT include any other labels, bullet points, or explanations after this.)")
+
         
         self.base_keyword_prompt = (f"Can you give a technical definition of <KEYWORD> in a few lines? "
                        f"If the word has multiple contexts, stick to a single context. "
@@ -73,7 +74,7 @@ class ContextTree:
         self.LLM_tokenizer = AutoTokenizer.from_pretrained(model_to_load, trust_remote_code=False, padding_side='left')
         self.LLM_model = AutoModelForCausalLM.from_pretrained(model_to_load, device_map=LLM_device_map, torch_dtype="auto", trust_remote_code=False)
 
-    def _query(self, prompt:str, remember_raw_response:bool=True, no_history:bool=False):
+    def _query(self, prompt:str, remember_raw_response:bool=True, no_history:bool=False, use_random_seed:bool=False):
         """A Method that queries a given prompt with appropriate settings
 
         Args:
@@ -85,7 +86,7 @@ class ContextTree:
             str: The response from the model as string
         """
         self.messages.append({"role" : "user", "content" : prompt})
-        
+        prompt = prompt + '<SEED=' + str(uuid.uuid4()) + '>' if use_random_seed else prompt
         if no_history:
             messages = [self.messages[0], {"role" : "user", "content" : prompt}]
             tokenized_chat = self.LLM_tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
@@ -104,7 +105,7 @@ class ContextTree:
             self.messages.append({"role" : "assistant", "content" : response.split('\n\ntech_words=[')[0]})
         return response
     
-    def _query_batch(self, keywords:list, remember_raw_response:bool=True, no_history:bool=False):
+    def _query_batch(self, keywords:list, remember_raw_response:bool=True, no_history:bool=False, use_random_seed:bool=False):
         """Method similar to _query only it batch queries a batch on len(keywords) prompts where n is number of nodes in a level of context tree
 
         Args:
@@ -117,15 +118,15 @@ class ContextTree:
         """
 
         batch_msgs = []
-
+        base_prompt = self.base_prompt + '<SEED=' + str(uuid.uuid4()) + '>' if use_random_seed else self.base_prompt
         # first we need to create the conversation history list for each keyword in the batch-
         # depending on cofig argument no_history, the lenght of the context varies. It is usually = 2 if the flag is True.
         for keyword in keywords:
             if no_history:
-                curr_messages_tree = [self.messages[0], {"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)}]
+                curr_messages_tree = [self.messages[0], {"role" : "user", "content" : base_prompt.replace("<KEYWORD>", keyword)}]
             else:
                 curr_messages_tree = self.messages.copy()
-                curr_messages_tree.append({"role" : "user", "content" : self.base_prompt.replace("<KEYWORD>", keyword)})
+                curr_messages_tree.append({"role" : "user", "content" : base_prompt.replace("<KEYWORD>", keyword)})
             batch_msgs.append(curr_messages_tree)
 
         # Then we query all the keywords in the batch together-
@@ -158,7 +159,9 @@ class ContextTree:
         Extracts both technical words and context from LLM response using regex.
         Returns a tuple (list of extracted words, extracted context).
         """
-        words_match = re.search(r"(?i)tech_words=\[(.*?)\]-<", response)
+        words_match = re.search(r"(?i)tech_words=\[(.*?)\]", response)
+        if not words_match:
+            words_match = re.search(r"(?i)technical words\W*\[(.*?)\]", response)
         context_match = re.search(r"(?i)context=(.*?)-<", response)
 
         words = words_match.group(1).split(',') if words_match else []
@@ -202,8 +205,8 @@ class ContextTree:
         # ner_filtered = self.NER.infer_caption(response.split('tech_words=[')[1].split(']')[0], self.NER_model)
         # ner_filtered = self.NER.remove_o_tag(ner_filtered, {})
 
-        print(f"🔍 Keywords from the prompt: ", new_keywords)
-        print()
+        # print(f"🔍 Keywords from the prompt: ", new_keywords)
+        # print()
         # print(f"🔍 Keywords from the NER: ", ner_keywords)
         # print()
         # print(f"🔍 Keywords from the prompt filtered by the NER: ", ner_filtered)
@@ -214,7 +217,7 @@ class ContextTree:
         # elif keyword_opt == 'FILTERED':
         #     return ner_filtered
         
-    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', seed:int=None, 
+    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', use_random_seed:bool=False, 
             remember_raw_response:bool=True, batch_query:bool=False, no_history:bool=False):
         """A method that performs BFS on the context tree for a given starting keyword.
 
@@ -224,8 +227,6 @@ class ContextTree:
             keyword_opt (str, optional): THe option to choose which approach to use for keyword extraction between LLM, NER, or BOTH. Defaults to 'LLM'.
             seed (int, optional): _description_. Defaults to 0.
         """
-        if seed:
-            torch.manual_seed(seed)
         # Starting with the BFS tree-
         NODE_root = Node(keyword=starting_keyword, response=None)
 
@@ -237,16 +238,16 @@ class ContextTree:
 
             # Now we wanna make sure the node we are about to explore has been prompted-
             if node.response == None:
-                node_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword), remember_raw_response)
+                node_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword), remember_raw_response, use_random_seed=use_random_seed)
                 node.response = node_response
-            print("\n\n", "=" * 75)
-            print(f"📜 DEPTH - {node.depth} Key keyword: {node.keyword}")
+            # print("\n\n", "=" * 75)
+            # print(f"📜 DEPTH - {node.depth} Key keyword: {node.keyword}")
             new_keywords = self.get_keywords(node.response, node.keyword, keyword_opt)
-            print("\n\n", "=" * 75)
+            # print("\n\n", "=" * 75)
 
             # Prune the current keyword from the batch:
             if batch_query and len(new_keywords)>0:
-                batch_responses = self._query_batch(new_keywords, remember_raw_response, no_history)
+                batch_responses = self._query_batch(new_keywords, remember_raw_response, no_history, use_random_seed=use_random_seed)
 
             for i, keyword in enumerate(new_keywords):
                 if keyword.lower() == node.keyword.lower():
@@ -254,7 +255,7 @@ class ContextTree:
                 if batch_query:
                     child_response = batch_responses[i]
                 else:
-                    child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword), remember_raw_response)
+                    child_response = self._query(self.base_prompt.replace("<KEYWORD>", keyword), remember_raw_response, use_random_seed=use_random_seed)
                 child_node = Node(keyword=keyword, response=child_response, depth=node.depth + 1, parent=node)
                 node.add_child(child_node)
                 queue.append(child_node)
@@ -297,20 +298,20 @@ class ContextTree:
         with open(f"{output_dir}/conversation.json", "w") as f:
             conv = {'conversation' : self.messages}
             json.dump(conv, f, indent=4)
-            
+
 
 if __name__ == "__main__":
     keywords = ["heat coefficient", "Phase Diagram", "Diffusion Coefficient"]
-    keywords = ["heat coefficient"]
-    domain = "material science"
-    num_runs_per_tree = 1
-    temprature_values = [50]
+    keywords = ["endometriosis", "covid-19", "oxygen"]
+    domain = "biomedical"
+    num_runs_per_tree = 200
+    temprature_values = [40]
     for temprature in temprature_values:
         for starting_keyword in keywords:
-            for run_n in range(num_runs_per_tree):
+            for run_n in tqdm(range(num_runs_per_tree)):
                 OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
                 OBJ_context_tree.generation_args['temperature'] = temprature/100
-                NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=1, remember_raw_response=False, batch_query=True, no_history=True)
+                NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=1, remember_raw_response=False, batch_query=True, no_history=True, use_random_seed=True)
                 OBJ_context_tree.save_tree(starting_keyword + '_' +str(temprature_values), NODE_root, run_n=run_n+1)
 
                 # making sure to clear memory before each run-
