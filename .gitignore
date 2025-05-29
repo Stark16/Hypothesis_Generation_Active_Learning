@@ -1,0 +1,8 @@
+output_trees
+__pycache__
+.cache
+MatSciBERT
+matscibert_inf
+datasets
+datasets/MATKG2_entities.json
+sanket_code
