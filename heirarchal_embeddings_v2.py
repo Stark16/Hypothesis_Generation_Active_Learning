@@ -177,17 +177,19 @@ class ContextEmbdTree:
  
 if __name__ == '__main__':
     
-    domain = "of your choice"
+    domain = "medicine"
     PATH_self_dir = os.path.dirname(os.path.realpath(__file__))
     PATH_domain = os.path.join(PATH_self_dir, "output_trees", domain)
-    topics = os.listdir(PATH_domain)
+    # topics = os.listdir(PATH_domain)
+    topics = ['didecyldimethylammonium_[40]', 'acetaminophen_[40]']
 
     for topic in tqdm(topics):
         PATH_current_topic = os.path.join(PATH_domain, topic)
 
         OBJ_EmbTree = ContextEmbdTree()
         for subtree_dir in tqdm(os.listdir(PATH_current_topic)):
-
+            if subtree_dir == 'LOG_failed_responses.json':
+                continue
             PATH_tree = os.path.join(PATH_current_topic, subtree_dir, 'tree.json')
             PATH_out_embd_tree = os.path.join(PATH_current_topic, subtree_dir, 'embdng_tree_v2.json')
             json_tree = OBJ_EmbTree.load_json_tree(PATH_tree)
