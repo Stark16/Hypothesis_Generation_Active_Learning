@@ -1,7 +1,6 @@
 import re
 from collections import deque
-from transformers import AutoTokenizer, AutoModelForCausalLM 
-from matscibert_inf.ner.NER_inference import NER_INF
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import os
 import torch
 import json
@@ -37,38 +36,31 @@ class ContextTree:
         
         self.PATH_self_dir = os.path.dirname(os.path.realpath(__file__))
         self.PATH_output_trees = os.path.join(self.PATH_self_dir, 'output_trees')
+        self.LOG_dir = os.path.join(self.PATH_output_trees, 'logs')
         self.load_LLM(model_to_load)
         self.STARTING_KEYWORD = starting_keyword
         self.DOMAIN = domain
+        self.LOG_unparsed_response = []
+        self.LOG_empty_responses = []
         self.messages = [
-            {"role" : "system", "content" : f"You are an AI assistant exploring the topic {self.STARTING_KEYWORD} in {self.DOMAIN} context. You're defining keywords on factual knowledge."}
-        ]
+            {"role" : "system", 
+             "content" : f"""You are a GPT that is a topic explorer that defines a given keyword using concise language and lists related sub-keywords in order of relevance.
+                            When provided with a keyword and an optional domain, it generates a 1–2 sentence definition incorporating key concepts (sub-keywords) but does not elaborate on them.
+                            After the definition, it presents a list called tech_words=[...] containing those sub-keywords, ordered from most to least relevant.
+                            The GPT allows users to specify a 'seed' (typically a UUID) to enable deterministic variations of responses for the same keyword.
+                            The structure of the response is strict and consistent: definition followed by the tech_words list-"[]", "each element comma separated", with no additional commentary or deviation.
+                            Definitions are domain-relevant, informative, and incorporate the listed sub-keywords naturally.
+                            The GPT avoids any explanatory commentary or elaboration on the listed sub-keywords, ensuring clarity and adherence to the specified format."""}]
 
         self.base_prompt = (f"Give a short technical definition of <KEYWORD> in a few lines. "
-                            f"Stick to one specific context. Do NOT explain the technical words. "
-                            f"After the definition, strictly output the following two lines — no deviation:\n\n"
-                            f"tech_words=[a, b, c]-<<KEYWORD>>\n"
-                            f"context=your context here-<<KEYWORD>>\n\n"
-                            f"(Do NOT include any other labels, bullet points, or explanations after this.)")
-
-        
-        self.base_keyword_prompt = (f"Can you give a technical definition of <KEYWORD> in a few lines? "
-                       f"If the word has multiple contexts, stick to a single context. "
-                       f"Simply state the technical words in this definition, but don't define them. "
-                       f"At the end of the definition, list out the technical words and the main context in this format - "
-                       "(only mention the strongest technical keywords in order of relevance to this keyword)\n"
-                       f"'tech_words=[a,b]-<<KEYWORD>>'\n"
-                       f"'context=some description-<<KEYWORD>>'")
+                            f"If the word has multiple contexts, stick to a single context. "
+                            f"Follow the output format for the technical keywords as mentined before.")
 
         self.generation_args = { 
                             "max_new_tokens": 512, 
                             "temperature": 0.05,
-                            
-                        }
-        
-        self.NER = NER_INF()
-        self.NER_model = self.NER.initialize_infer()
-        
+                            "do_sample": True
+                        }        
 
     def load_LLM(self, model_to_load, LLM_device_map:str="auto"):
         self.LLM_tokenizer = AutoTokenizer.from_pretrained(model_to_load, trust_remote_code=False, padding_side='left')
@@ -86,12 +78,13 @@ class ContextTree:
             str: The response from the model as string
         """
         self.messages.append({"role" : "user", "content" : prompt})
-        prompt = prompt + '<SEED=' + str(uuid.uuid4()) + '>' if use_random_seed else prompt
+        prompt = prompt + '<' + str(uuid.uuid4()) + '>' if use_random_seed else prompt
         if no_history:
             messages = [self.messages[0], {"role" : "user", "content" : prompt}]
             tokenized_chat = self.LLM_tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
         else:
             tokenized_chat = self.LLM_tokenizer.apply_chat_template(self.messages, add_generation_prompt=True, return_tensors="pt")
+        tokenized_chat = tokenized_chat.to('cuda')
         output = self.LLM_model.generate(tokenized_chat, **self.generation_args)
         output = self.LLM_tokenizer.batch_decode(output, skip_special_tokens=False, clean_up_tokenization_spaces=True)
         response = output[0].split("<|assistant|>")[-1].split("<|end|>")[0]
@@ -131,6 +124,7 @@ class ContextTree:
 
         # Then we query all the keywords in the batch together-
         batch_tokenized_chat = self.LLM_tokenizer.apply_chat_template(batch_msgs, add_generation_prompt=True, return_tensors="pt", padding=True)
+        batch_tokenized_chat = batch_tokenized_chat.to('cuda')
         batch_output = self.LLM_model.generate(batch_tokenized_chat, **self.generation_args)
         batch_output = self.LLM_tokenizer.batch_decode(batch_output, skip_special_tokens=False, clean_up_tokenization_spaces=True)
 
@@ -156,24 +150,27 @@ class ContextTree:
 
     def extract_info(self, response, keyword):
         """
-        Extracts both technical words and context from LLM response using regex.
+        Isolates the technical words from raw LLM response using regex.
         Returns a tuple (list of extracted words, extracted context).
         """
         words_match = re.search(r"(?i)tech_words=\[(.*?)\]", response)
         if not words_match:
-            words_match = re.search(r"(?i)technical words\W*\[(.*?)\]", response)
-        context_match = re.search(r"(?i)context=(.*?)-<", response)
+            words_match = re.search(r"tech_words=\[*(.*)\]*[^\]|$]", response)
 
-        words = words_match.group(1).split(',') if words_match else []
-        context = context_match.group(1).strip() if context_match else None
+
+        words = words_match.group(1).split(', ') if words_match else []
 
         filtered_keywords = []
         for word in words:
             word = word.strip()
+            if word.startswith('"'):
+                word = word[1:]
+            if word.endswith('"'):
+                word = word[:-1]
             if word not in filtered_keywords and len(word) > 1 and word.lower() != keyword.lower():
                 filtered_keywords.append(word)
 
-        return filtered_keywords, context
+        return filtered_keywords
 
 
     def linear_exploration(self, starting_keyword, depth_cap = 5, logger=False):
@@ -197,27 +194,8 @@ class ContextTree:
         with open('tree.json', 'w', encoding='utf-8') as f:
             json.dump({"content" : self.messages}, f)
 
-    def get_keywords(self, response:str, keyword:str, keyword_opt:str):
-        new_keywords, _ = self.extract_info(response, keyword)
-        # ner_keywords = self.NER.infer_caption(response.split('\n\ntech_words=[')[0], self.NER_model)
-        # ner_keywords = self.NER.remove_o_tag(ner_keywords, {})
-
-        # ner_filtered = self.NER.infer_caption(response.split('tech_words=[')[1].split(']')[0], self.NER_model)
-        # ner_filtered = self.NER.remove_o_tag(ner_filtered, {})
-
-        # print(f"🔍 Keywords from the prompt: ", new_keywords)
-        # print()
-        # print(f"🔍 Keywords from the NER: ", ner_keywords)
-        # print()
-        # print(f"🔍 Keywords from the prompt filtered by the NER: ", ner_filtered)
-        if keyword_opt == 'LLM':
-            return new_keywords
-        # elif keyword_opt == 'NER':
-        #     return ner_keywords
-        # elif keyword_opt == 'FILTERED':
-        #     return ner_filtered
         
-    def bfs(self, starting_keyword:str, depth_cap:int=4, keyword_opt:str='LLM', use_random_seed:bool=False, 
+    def bfs(self, starting_keyword:str, depth_cap:int=4, use_random_seed:bool=False, 
             remember_raw_response:bool=True, batch_query:bool=False, no_history:bool=False):
         """A method that performs BFS on the context tree for a given starting keyword.
 
@@ -240,10 +218,13 @@ class ContextTree:
             if node.response == None:
                 node_response = self._query(self.base_prompt.replace("<KEYWORD>", starting_keyword), remember_raw_response, use_random_seed=use_random_seed)
                 node.response = node_response
-            # print("\n\n", "=" * 75)
-            # print(f"📜 DEPTH - {node.depth} Key keyword: {node.keyword}")
-            new_keywords = self.get_keywords(node.response, node.keyword, keyword_opt)
-            # print("\n\n", "=" * 75)
+
+            new_keywords = self.extract_info(node.response, node.keyword)
+
+            if (node.response.split('tech_words')[0] == ' '):
+                self.LOG_empty_responses.append(node.response)
+            if len(new_keywords) == 0:
+                self.LOG_unparsed_response.append(node.response)
 
             # Prune the current keyword from the batch:
             if batch_query and len(new_keywords)>0:
@@ -284,6 +265,7 @@ class ContextTree:
                                               "children": build_tree_recursive(root_node)}
 
         output_dir = os.path.join(self.PATH_output_trees, self.DOMAIN, starting_keyword)
+        log_file = os.path.join(output_dir, 'LOG_failed_responses.json')
         if run_n:
             output_dir = os.path.join(output_dir, 'run_' + str(run_n))
 
@@ -299,17 +281,30 @@ class ContextTree:
             conv = {'conversation' : self.messages}
             json.dump(conv, f, indent=4)
 
+        # Lastly update the log files - 
+        if os.path.isfile(log_file):
+            with open(log_file, 'r') as f:
+                log_info = json.load(f)
+            log_info.update({"unparsed_responses" : self.LOG_unparsed_response,
+                                 "empty_responses" : self.LOG_empty_responses})
+        else:
+            log_info = {"unparsed_responses" : self.LOG_unparsed_response,
+                        "empty_responses" : self.LOG_empty_responses}
+        with open(log_file, 'w') as f:
+            json.dump(log_info, f)
+        
 
 if __name__ == "__main__":
     keywords = ["heat coefficient", "Phase Diagram", "Diffusion Coefficient"]
-    keywords = ["endometriosis", "covid-19", "oxygen"]
-    domain = "biomedical"
+    keywords = ["acetaminophen", "gliosis", "Leukemia", "Dalfopristin"]
+    keywords = ['didecyldimethylammonium', 'acetaminophen']
+    domain = "medicine"
     num_runs_per_tree = 200
     temprature_values = [40]
     for temprature in temprature_values:
         for starting_keyword in keywords:
             for run_n in tqdm(range(num_runs_per_tree)):
-                OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain)
+                OBJ_context_tree = ContextTree(starting_keyword=starting_keyword, domain=domain, model_to_load='microsoft/Phi-3.5-mini-instruct')
                 OBJ_context_tree.generation_args['temperature'] = temprature/100
                 NODE_root = OBJ_context_tree.bfs(starting_keyword, depth_cap=1, remember_raw_response=False, batch_query=True, no_history=True, use_random_seed=True)
                 OBJ_context_tree.save_tree(starting_keyword + '_' +str(temprature_values), NODE_root, run_n=run_n+1)
