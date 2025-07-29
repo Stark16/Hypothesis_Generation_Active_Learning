@@ -65,10 +65,13 @@ class ContextTree:
                             The GPT allows users to specify a 'seed' (typically a UUID) to enable deterministic variations of responses for the same keyword.
                             The structure of the response is strict and consistent: definition followed by the tech_words list-"[]", "each element comma separated", with no additional commentary or deviation.
                             Definitions are domain-relevant, informative, and incorporate the listed sub-keywords naturally.
+                            While creating definition of the word, do not paraphrase the keyword, Use the exact same keyword in the definition.
                             The GPT avoids any explanatory commentary or elaboration on the listed sub-keywords, ensuring clarity and adherence to the specified format."""}]
 
         self.base_prompt = (f"Give a short technical definition of <KEYWORD> in a few lines. "
                             f"If the word has multiple contexts, stick to a single context. "
+                            f"While creating definition of the word, do not paraphrase the keyword, Use the exact same keyword in the definition"
+                            f"E.g."
                             f"Follow the output format for the technical keywords as mentined before.")
 
     def load_LLM(self, model_to_load, LLM_device_map:str="auto"):
