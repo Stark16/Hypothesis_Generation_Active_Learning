@@ -114,6 +114,8 @@ class HierarchEmbdTree:
 
     def fetch_embedding(self, keyword:str, response:str=None):
         if not response:
+            # TODO: FIX THIS-
+            return []
             return self.emb_library[keyword]
         
         # handeling a case in case the LLM response was empty-
@@ -154,19 +156,20 @@ class HierarchEmbdTree:
             for keyword, node_dict in tree_dict.items():
                 
                 embdg = self.fetch_embedding(keyword, node_dict["response"])
-                if keyword in list(embedding_coeff.keys()):
-                    embedding_coeff[keyword]["data"][1] += 1
-                else:
-                    embedding_coeff[keyword] = {"data" : [node_dict['depth'], 1, node_dict['response']]}
-                    embedding_coeff[keyword]["raw_enc"] = embdg.tolist()
-                
-                # Using formula for weight = [(1 * # of occurances) / (depth of the node)] * embedding:
-                weight_coeff = (1 * embedding_coeff[keyword]["data"][1])/(embedding_coeff[keyword]["data"][0])
-                embedding_coeff[keyword]["w88_enc"] = (weight_coeff * np.array(embedding_coeff[keyword]["raw_enc"])).tolist()
+                if (len(embdg) > 0):
+                    if keyword in list(embedding_coeff.keys()):
+                        embedding_coeff[keyword]["data"][1] += 1
+                    else:
+                        embedding_coeff[keyword] = {"data" : [node_dict['depth'], 1, node_dict['response']]}
+                        embedding_coeff[keyword]["raw_enc"] = embdg.tolist()
+                    
+                    # Using formula for weight = [(1 * # of occurances) / (depth of the node)] * embedding:
+                    weight_coeff = (1 * embedding_coeff[keyword]["data"][1])/(embedding_coeff[keyword]["data"][0])
+                    embedding_coeff[keyword]["w88_enc"] = (weight_coeff * np.array(embedding_coeff[keyword]["raw_enc"])).tolist()
 
-                # Now reccurse-
-                if (len(node_dict['children']) != 0):
-                    process_nodes(node_dict["children"])
+                    # Now reccurse-
+                    if (len(node_dict['children']) != 0):
+                        process_nodes(node_dict["children"])
         
         process_nodes(tree_dict=tree_dict)
         return embedding_coeff
@@ -183,7 +186,6 @@ class HierarchEmbdTree:
             with open(PATH_out_embd_tree, 'w') as f:
                 json.dump(embedding_coeff, f)
     
-
  
 if __name__ == '__main__':
     
