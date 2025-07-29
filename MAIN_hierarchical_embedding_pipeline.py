@@ -34,24 +34,32 @@ class HierarchicalEmbPipeline:
                                            self.OBJContextTree.DOMAIN, 
                                            self.OBJContextTree.STARTING_KEYWORD)
         self.OBJHierarchEmb.create_embeddings(PATH_context_forest)
+        torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     temprature = 40
-    num_trees = 10
+    num_trees = 11
     depth_cap = 2
 
-    keyword = "heat coefficient"
-    domain = "material science"
+    # keyword = "heat coefficient"
+    domain = "medicinal_drugs"
 
-    OBJ_HierarchEmbPipe = HierarchicalEmbPipeline(keyword, domain)
+    with open("/home/ppathak2/Hypothesis_Generation_Active_Learning/diseases.txt", 'r') as f:
+        drugs = f.readlines()
+    drugs = ["Cyclic GMP"]
+    for keyword in drugs:
+        keyword = keyword.strip()
 
-    # Setting up some configurable arguments-
-    OBJ_HierarchEmbPipe.OBJContextTree.generation_args['temperature'] = temprature/100
-    OBJ_HierarchEmbPipe.MODEL_ARGS_gen_llm["batch_query"] = True
-    OBJ_HierarchEmbPipe.MODEL_ARGS_gen_llm["no_history"] = True
-
-
-    OBJ_HierarchEmbPipe.create_embedding(num_trees, depth_cap)
-
+        print("\n\t\t", "-"*50, " ", keyword, " ", "-"*50, "\n")
+        OBJ_HierarchEmbPipe = HierarchicalEmbPipeline(keyword, domain)
+        # if keyword in os.listdir(os.path.join(OBJ_HierarchEmbPipe.OBJContextTree.PATH_output_trees, domain)):
+        #     print(f"Tree already exists. Skipping - <{keyword}> -")
+        #     continue
         
-        
+        # Setting up some configurable arguments-
+        OBJ_HierarchEmbPipe.OBJContextTree.generation_args['temperature'] = temprature/100
+        OBJ_HierarchEmbPipe.MODEL_ARGS_gen_llm["batch_query"] = True
+        OBJ_HierarchEmbPipe.MODEL_ARGS_gen_llm["no_history"] = True
+
+        OBJ_HierarchEmbPipe.create_embedding(num_trees, depth_cap)
+       
