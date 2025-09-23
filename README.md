@@ -10,9 +10,13 @@ The research follows two main directions:
   
 2. **🎭 Hypothesis Prediction** – Training AI to **anticipate knowledge gaps** and suggest **scientific hypotheses**. This involves **fine-tuning language models** to understand research papers, detect gaps, and improve predictions over time.
 
+
 > To get a detailed synopsis of the research, check out [this link](https://drive.google.com/file/d/17-rAkKbAvTCTzBNMniW6QPe66BzO36h-/view?usp=sharing).
 
 ![image](https://github.com/user-attachments/assets/b650a66d-18e1-48fd-97dd-43fe8e650bb9)
+
+#### [LLM Knowledge Tree Demo](https://drive.google.com/file/d/1SbmQ9ulhwpSOeBLk7izHLnAQu3MRwkcL/view?usp=sharing) - 
+![Desktop 2025 09 23 - 13 16 11 01](https://github.com/user-attachments/assets/77e9278e-996d-4990-9f2e-5cd561ec2e92)
 
 
 ---
