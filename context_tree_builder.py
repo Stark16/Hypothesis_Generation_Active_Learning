@@ -65,6 +65,7 @@ class ContextTree:
                             The GPT allows users to specify a 'seed' (typically a UUID) to enable deterministic variations of responses for the same keyword.
                             The structure of the response is strict and consistent: definition followed by the tech_words list-"[]", "each element comma separated", with no additional commentary or deviation.
                             Definitions are domain-relevant, informative, and incorporate the listed sub-keywords naturally.
+                            Do no explicitly write - '... in the context of X ...'; X being the context.
                             While creating definition of the word, do not paraphrase the keyword, Use the exact same keyword in the definition.
                             The GPT avoids any explanatory commentary or elaboration on the listed sub-keywords, ensuring clarity and adherence to the specified format."""}]
 
@@ -73,6 +74,31 @@ class ContextTree:
                             f"While creating definition of the word, do not paraphrase the keyword, Use the exact same keyword in the definition"
                             f"E.g."
                             f"Follow the output format for the technical keywords as mentined before.")
+    
+    def reset_mem_ctx(self):
+        """
+        [EXPERIMENTAL] A Method to reset variable memories of commonly used variable. 
+        Used for quick resets of data members for fresh tree generation, without needing to reload the models to save time.
+        """
+        self.LOG_unparsed_response = []
+        self.LOG_empty_responses = []
+        self.messages = [
+            {"role" : "system", 
+             "content" : f"""You are a GPT that is a topic explorer that defines a given keyword using concise language and lists related sub-keywords in order of relevance.
+                            When provided with a keyword and a context along with an optional domain, it generates a 1–2 sentence definition incorporating key concepts (sub-keywords) but does not elaborate on them.
+                            Your definition should be a natural definition of the keyword IN the given context. do no explicitly write - '... in the context of X ...'; X being the context.
+                            After the definition, it presents a list called tech_words=[...] containing those sub-keywords, ordered from most to least relevant.
+                            The GPT allows users to specify a 'seed' (typically a UUID) to enable deterministic variations of responses for the same keyword.
+                            The structure of the response is strict and consistent: definition followed by the tech_words list-"[]", "each element comma separated", with no additional commentary or deviation.
+                            Definitions are domain-relevant, informative, and incorporate the listed sub-keywords naturally.
+                            While creating definition of the word, do not paraphrase the keyword, Use the exact same keyword in the definition.
+                            The GPT avoids any explanatory commentary or elaboration on the listed sub-keywords, ensuring clarity and adherence to the specified format."""}]
+
+        self.base_prompt = (f"Give a short technical definition of <KEYWORD> in the context of {self.STARTING_KEYWORD} in a few lines. "
+                            f"Explicitly just directly define the keyword in the given context. Do not write sentences like - '... in the context of {self.STARTING_KEYWORD}...'"
+                            f"Do not use the word {self.STARTING_KEYWORD} unless absolutely necessary."
+                            f"While creating definition of the word, do not paraphrase the keyword, Use the exact same keyword in the definition"
+                            f"E.g.Follow the output format for the technical keywords as mentioned before.")
 
     def load_LLM(self, model_to_load, LLM_device_map:str="auto"):
         self.LLM_tokenizer = AutoTokenizer.from_pretrained(model_to_load, trust_remote_code=False, padding_side='left')
