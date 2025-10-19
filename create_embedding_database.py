@@ -17,9 +17,9 @@ def polar_normalization(vec):
 
 
 def calculate_context_embedding(context_tree_embd, normalize=True):
-    final_embedding = np.zeros_like(context_tree_embd[next(iter(context_tree_embd))]['w88_enc'])
+    final_embedding = np.zeros_like(context_tree_embd[next(iter(context_tree_embd))]['w88_enc'][0])
     for keyword, values in context_tree_embd.items():
-        w88_embding = np.array(values['w88_enc'])
+        w88_embding = np.array(values['w88_enc'][0])
         if (np.isnan(w88_embding).any() or np.isinf(w88_embding).any()):
             continue
         if normalize:
@@ -72,8 +72,8 @@ def process_keyword_folder(keyword_path, save_dir):
 
 
 def main():
-    PATH_output_dir = "/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/diseases"
-    save_dir = os.path.join(os.path.dirname(PATH_output_dir), "Cycle_GMP_fix")
+    PATH_output_dir = "/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/ICLR/ICLR_no_ctx_prompt/medicinal_drug"
+    save_dir = os.path.join(os.path.dirname(PATH_output_dir), "ICLR_drugs_final_embd")
     list_of_keywords = os.listdir(PATH_output_dir)
 
     pbar = tqdm(list_of_keywords)
@@ -85,6 +85,4 @@ def main():
     print(error_keywords)
 
 if __name__ == "__main__":
-    dblack_listed_keywords = ['pralidoxime', 'Topotecan', 'Oxytetracycline',
-                              'Trimethoprim', 'Flutamide']
     main()
