@@ -2,6 +2,8 @@ import os
 import json
 from tqdm import tqdm
 
+# A script that checks for any final embeddings larger than 768 dimensions in the final embedding directory
+
 def check_final_embedding_sizes(base_dir):
     keywords = []
     for keyword in tqdm(os.listdir(base_dir)):
@@ -23,7 +25,7 @@ def check_final_embedding_sizes(base_dir):
     print(keywords)
 
 def main():
-    base_dir = '/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/NeLaMKRR_hierarchichal2'
+    base_dir = "/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/ICLR/ICLR_no_ctx_prompt/ICLR_drugs_final_embd"
     check_final_embedding_sizes(base_dir)
 
 if __name__ == "__main__":
