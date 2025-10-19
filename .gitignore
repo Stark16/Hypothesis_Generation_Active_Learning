@@ -6,3 +6,4 @@ matscibert_inf
 datasets
 datasets/MATKG2_entities.json
 sanket_code
+*.txt
