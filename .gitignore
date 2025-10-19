@@ -7,3 +7,5 @@ datasets
 datasets/MATKG2_entities.json
 sanket_code
 *.txt
+*.tar
+*.tar.gz
