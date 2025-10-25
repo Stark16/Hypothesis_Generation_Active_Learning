@@ -17,6 +17,8 @@ def check_run_count(path_output_tree:str, target_count=int):
     mismatched_keywords = []
     for keyword in os.listdir(path_output_tree):
         path_keyword = os.path.join(path_output_tree, keyword)
+        if not os.path.isdir(path_keyword):
+            continue
         runs = os.listdir(path_keyword)
         try:
             runs.remove("LOG_failed_responses.json")
@@ -32,6 +34,8 @@ def check_tree_integrity(path_output_tree:str):
                       "embdng_tree_v2_last_three.json", "embdng_tree_v2_last_two.json", "embdng_tree_v2_last.json"]
     for keyword in os.listdir(path_output_tree):
         path_keyword = os.path.join(path_output_tree, keyword)
+        if not os.path.isdir(path_keyword):
+            continue
         runs = os.listdir(path_keyword)
         try:
             runs.remove("LOG_failed_responses.json")
@@ -48,7 +52,7 @@ def check_tree_integrity(path_output_tree:str):
     return corrupted_keywords
 
 def main():
-    path_output_tree = r'/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/ICLR/ICLR_no_ctx_prompt/diseases'
+    path_output_tree = r'/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/ICLR/ICLR_ctx_prompt/diseases'
     source_list_path = r'/home/ppathak2/Hypothesis_Generation_Active_Learning/diseases.txt'
     
     with open(source_list_path, 'r') as f:
