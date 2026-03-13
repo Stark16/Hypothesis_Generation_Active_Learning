@@ -82,7 +82,7 @@ def run_tests():
     for test_batch in test_batches:
         batch_name = test_batch[0]
         df = test_batch[1]
-        PATH_output_dir = os.path.join("/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/BATS", batch_name)
+        PATH_output_dir = os.path.join("/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/BATS_BERT", batch_name)
         run_test_on_df(batch_name, df, PATH_output_dir)
 
 if __name__ == "__main__":
