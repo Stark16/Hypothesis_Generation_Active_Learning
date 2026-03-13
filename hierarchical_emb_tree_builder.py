@@ -7,11 +7,11 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 
 class HierarchEmbdTree:
-    def __init__(self, model_control:str='allenai/scibert_scivocab_uncased', device:str='cuda'):
+    def __init__(self, model_control:str='bert-base-uncased', device:str='cuda'):
         """This class is used to created embedding tree from context trees
 
         Args:
-            model_control (str, optional): the model of choice. Defaults to 'allenai/scibert_scivocab_uncased'.
+            model_control (str, optional): the model of choice. Defaults to 'bert-base-uncased'.
             device (str, optional): The device to use. Defaults to 'cuda'.
         """
         self.device = device
@@ -57,10 +57,11 @@ class HierarchEmbdTree:
 
         inputs = {k: encoding[k].to(self.device) for k in ["input_ids", "token_type_ids", "attention_mask"] if k in encoding}
         input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"].unsqueeze(-1).unsqueeze(0)
+        attention_mask = inputs["attention_mask"].unsqueeze(-1)
 
         if layer_strategy == 'static':
-            embeddings = self.MODEL_control.embeddings.word_embeddings(input_ids)
+            with torch.no_grad():
+                embeddings = self.MODEL_control.embeddings.word_embeddings(input_ids)
             embeddings = embeddings.masked_fill(attention_mask.logical_not(), 0)
         elif layer_strategy == 'all':
             with torch.no_grad():
@@ -165,7 +166,7 @@ class HierarchEmbdTree:
                         if match_idx == i:
                             for token_group in keyword_matches[occurrence_idx][1]:
                                 # emb_tensor shape: (batch, seq_len, hidden)
-                                embs_t.append(emb_tensor[0, i, list(token_group), :].mean(dim=0).cpu().tolist())
+                                embs_t.append(emb_tensor[i, list(token_group), :].mean(dim=0).cpu().tolist())
                             occurrence_idx += 1
                         else:
                             embs_t = []
@@ -183,7 +184,7 @@ class HierarchEmbdTree:
                     match_idx = keyword_matches[occurrence_idx][0]
                     if match_idx == i:
                         for token_group in keyword_matches[occurrence_idx][1]:
-                            embs_t.append(embedding[0, i, list(token_group), :].mean(dim=0).cpu().tolist())
+                            embs_t.append(embedding[i, list(token_group), :].mean(dim=0).cpu().tolist())
                         occurrence_idx += 1
                     else:
                         embs_t = []
