@@ -96,8 +96,8 @@ def process_keyword_folder(keyword_path, save_dir):
 
 
 def main():
-    PATH_output_dir = "/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/ICLR/ICLR_no_ctx_prompt/medicinal_drugs"
-    save_dir = os.path.join(os.path.dirname(PATH_output_dir), "ICLR_drugs_final_embd")
+    PATH_output_dir = "/home/ppathak2/Hypothesis_Generation_Active_Learning/output_trees/BATS_BERT/female-male-batch/male - female"
+    save_dir = os.path.join(os.path.dirname(PATH_output_dir), "male - female_final_embd")
     list_of_keywords = os.listdir(PATH_output_dir)
     # list_of_keywords = ['pralidoxime', 'Topotecan', 'Oxytetracycline','Trimethoprim', 'Flutamide']
     # list_of_keywords = ['pralidoxime']
