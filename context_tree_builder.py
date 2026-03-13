@@ -95,9 +95,12 @@ class ContextTree:
                             The GPT avoids any explanatory commentary or elaboration on the listed sub-keywords, ensuring clarity and adherence to the specified format."""}]
 
         self.base_prompt = (f"Give a short technical definition of <KEYWORD> in the context of {self.STARTING_KEYWORD} in a few lines. "
+                            f"Ensure that the exact form of the <KEYWORD> is used in the definition. Do NOT paraphrase the <KEYWORD>."
                             f"Explicitly just directly define the keyword in the given context. Do not write sentences like - '... in the context of {self.STARTING_KEYWORD}...'"
                             f"Do not use the word {self.STARTING_KEYWORD} unless absolutely necessary."
-                            f"While creating definition of the word, do not paraphrase the keyword, Use the exact same keyword in the definition"
+                            f"While creating definition of the word, do not paraphrase the keyword."
+                            f"USE THE EXACT FORM of the <KEYWORD> in the definition."
+                            f"DO NOT PARAPHRASE THE <KEYWORD> while creating the definition of it."
                             f"E.g.Follow the output format for the technical keywords as mentioned before.")
 
     def load_LLM(self, model_to_load, LLM_device_map:str="auto"):
