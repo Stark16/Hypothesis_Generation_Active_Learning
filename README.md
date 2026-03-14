@@ -39,3 +39,111 @@ This branch explores **hierarchical embeddings**, a novel approach where knowled
 🚀 **This is just the beginning.** Future work will refine these models and extend them to other scientific fields. Feel free to explore any of the branches.
 
 ---
+
+# Hierarchical Embedding Pipeline Guide
+
+This section explains the overarching process and architecture of the codebase used for hypothesis generation via context-aware hierarchical embeddings. The central concept involves defining scientific keywords by building a tree of related concepts (Context Tree), extracting deep contextual embeddings for these concepts (Context Forest / Embedding Trees), and evaluating the output against scientific or analogy datasets (e.g., BATS).
+
+## 1. High-Level Process Overview
+
+The research flow consists of four primary stages.
+
+### Stage 1: Context-Tree Creation
+A purely text-based knowledge tree is generated for a given starting keyword. An LLM (Language Model) is prompted to define the target word and list related sub-keywords. These sub-keywords become branches. The model recursively queries these new branches up to a maximum depth, creating a hierarchy of related terms and definitions centered on the root keyword.
+
+### Stage 2: Embedding-Tree (Context Forest) Creation
+Once the text-based Context Tree is built, it needs to be mapped to a continuous vector space so that semantic relationships can be analyzed mathematically. A scientific BERT model (e.g., SciBERT, MatSciBERT) ingests each node’s text and definition. The text is passed through the model, and embeddings from specific layers (typically the last few hidden layers) are extracted to form the corresponding Embedding Tree (or Context Forest).
+
+### Stage 3: Final Embedding Aggregation
+Due to the LLM's non-deterministic nature and varying contexts, multiple Context Trees are generated for the same starting keyword across different "runs". This stage aggregates the resulting embedding trees into a single, cohesive representation (the "Final Embedding") for the root keyword, establishing a robust vector that captures its multidimensional scientific context.
+
+### Stage 4: Evaluation (BATS Test)
+The Bigger Analogy Test Set (BATS) is used to evaluate the semantic properties of the final embeddings. It tests whether the vector arithmetic of the hierarchical embeddings appropriately models semantic analogies (e.g., inflectional morphology, lexicographic semantics).
+
+
+## 2. Project Scripts and their Dependencies
+
+The repository utilizes a modular structure. Here are the core scripts, their purposes, and their interdependencies:
+
+*   **`MAIN_context_tree_emb_pipeline.py`**
+    *   **Role:** The entry point for running the embedding creation process. It handles batch processing of multiple keywords from a given domain.
+    *   **Dependencies:** Imports `HierarchicalEmbPipeline` from `hierarchical_embedding_pipeline.py`.
+    *   **Output:** Generates execution time analysis plots and coordinates the output directories.
+
+*   **`hierarchical_embedding_pipeline.py`**
+    *   **Role:** The orchestrator class. It coordinates the creation of both the initial text tree and the corresponding embedding tree. It heavily relies on the builder scripts.
+    *   **Dependencies:** Imports `context_tree_builder.py` and `hierarchical_emb_tree_builder.py`.
+
+*   **`context_tree_builder.py`**
+    *   **Role:** Manages interactions with the generation LLM (e.g., Phi-3.5-mini-instruct). Provides the `ContextTree` and `Node` classes. Uses a breadth-first search (BFS) approach to construct the text-based tree.
+    *   **Dependencies:** Runs largely independently but relies on `transformers` and HuggingFace models.
+
+*   **`hierarchical_emb_tree_builder.py`**
+    *   **Role:** Houses the `HierarchEmbdTree` class. It loads the output JSON from the `context_tree_builder` and processes the text through a specified embedding model.
+    *   **Dependencies:** Dependent on the JSON output structure defined by `context_tree_builder.py`.
+
+*   **`create_embedding_database.py`** (and utilities like `check_final_embedding_sizes.py`)
+    *   **Role:** Reads the raw embedding JSONs (representing individual runs) and aggregates them into the final structured embeddings, performing any necessary normalization (e.g., polar normalization).
+    *   **Dependencies:** Relies on the JSON outputs from `hierarchical_emb_tree_builder.py`.
+
+*   **`tests/run_bats_test.py`** (and associated notebooks)
+    *   **Role:** Evaluates the generated final embeddings against the BATS analogy datasets.
+    *   **Dependencies:** Requires the aggregated final embedding outputs from the database creation stage.
+
+
+## 3. Detailed Execution Steps within Scripts
+
+### Step 1: `context_tree_builder.py` (Text Generation)
+1.  **Initialization:** The `ContextTree` class is initialized with a starting keyword, a domain, and an LLM identifier.
+2.  **Breadth-First Search (BFS):** The `bfs` method starts with the root keyword. It passes a customized prompt to the LLM requesting a definition and related sub-keywords.
+3.  **Parsing:** `extract_info` isolates the definition and the list of related terms from the LLM's response.
+4.  **Tree Expansion:** New `Node` objects are created for the related terms and added as children to the current node. The process repeats until the `depth_cap` is reached.
+5.  **Output:** The tree structure is serialized and saved as `tree.json`.
+
+**Example JSON Data (`tree.json` structure):**
+```json
+{
+    "keyword": "General relativity",
+    "response": "General relativity is a fundamental theory... tech_words=[gravity, spacetime, mass, energy]",
+    "depth": 1,
+    "children": [
+        {
+            "keyword": "gravity",
+            "response": "Gravity is the phenomenon... tech_words=[force, mass, attraction]",
+            "depth": 2,
+            "children": [...]
+        }
+    ]
+}
+```
+
+### Step 2: `hierarchical_emb_tree_builder.py` (Embedding Extraction)
+1.  **Loading:** The `HierarchEmbdTree` loads the `tree.json` outputted by the context tree builder.
+2.  **Tokenization & Model Inference:** The text in the tree is tokenized. A scientific BERT model processes the text to map semantic features to hidden layer weights.
+3.  **Layer Selection:** The `embed_texts` method applies a specific layer strategy (e.g., extracting embeddings from the `last_three` layers, or `all` layers) to derive vectors.
+4.  **Vector Mapping:** Word tokens within the text matching the node's keyword are located, and their specific token embeddings are pulled to represent the concept.
+5.  **Output:** An output JSON mapping nodes and their depths to their corresponding multi-dimensional vectors (`embdng_tree_v2_*.json`).
+
+**Example JSON Data (`embdng_tree_v2_*.json` structure):**
+```json
+{
+    "General relativity": {
+        "depth": 1,
+        "occurrences": 1,
+        "embedding": [0.12, -0.45, 0.89, ...]
+    },
+    ...
+}
+```
+
+### Step 3: `create_embedding_database.py` (Aggregation)
+1.  **Folder Scanning:** Searches output directories for all `embdng_tree_v2_*.json` files belonging to the multiple runs of a specific keyword.
+2.  **Vector Stacking:** Consolidates embeddings utilizing mathematical models (e.g. averaging vector coordinates across runs).
+3.  **Output:** Produces combined files typically prefixed as `final_<runs>_<strategy>.json` ensuring a consistent matrix form utilized for evaluation.
+
+### Step 4: `tests/run_bats_test.py` (Evaluation)
+1.  **Setup:** Loads the BATS dataset containing pairs of words defining specific relationships (e.g., male-female pairs).
+2.  **Analogy Processing:** Loads the aggregated final embeddings for these specific words.
+3.  **Arithmetic:** Uses vector arithmetic logic: `A - B + C = D` (e.g., `King - Man + Woman`) and checks the proximity of the resultant vector to the target embedding `Queen`.
+4.  **Reporting:** Outputs accuracy scores determining the contextual mapping integrity engineered by the hierarchical embeddings.
+
